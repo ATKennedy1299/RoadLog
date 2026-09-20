@@ -15,10 +15,14 @@ jobs:
           distribution: temurin
           java-version: 17
 
-      - uses: android-actions/setup-android@v3
+      # ubuntu-latest runners ship with a preinstalled Android SDK
+      # (platforms + build-tools) at $ANDROID_HOME, so no separate
+      # SDK-setup action is needed. Just accept licenses and go.
+      - name: Accept Android SDK licenses
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses || true
 
       - name: Build debug APK
-        run: ./gradlew assembleDebug
+        run: ./gradlew assembleDebug --stacktrace
 
       - uses: actions/upload-artifact@v4
         with:
