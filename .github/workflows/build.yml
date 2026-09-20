@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -26,13 +28,22 @@ jobs:
           set -o pipefail
           ./gradlew assembleDebug --stacktrace 2>&1 | tee build-output.log
 
-      - name: Post failure log to job summary
+      # Log/artifact downloads redirect through Azure Blob Storage, which
+      # this project's egress policy can't reach — so post the failure
+      # excerpt as a commit comment instead, a plain API object with no
+      # blob-storage indirection.
+      - name: Post failure log as a commit comment
         if: failure()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo '### Build failure (last 200 lines)' >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          tail -n 200 build-output.log >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -n 200 build-output.log > failure-excerpt.txt
+          BODY=$(jq -Rs '"### Build failed: " + "${{ github.workflow }}" + "\n```\n" + . + "\n```"' failure-excerpt.txt)
+          curl -sS -X POST \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/commits/${{ github.sha }}/comments" \
+            -d "{\"body\": $BODY}"
 
       - uses: actions/upload-artifact@v4
         with:
