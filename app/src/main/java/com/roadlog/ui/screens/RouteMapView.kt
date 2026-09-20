@@ -1,12 +1,16 @@
 package com.roadlog.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -16,6 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -25,28 +31,50 @@ import com.roadlog.ui.theme.TextSecondary
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
-import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
+import org.maplibre.android.style.layers.RasterLayer
 import org.maplibre.android.style.sources.GeoJsonSource
+import org.maplibre.android.style.sources.RasterSource
+import org.maplibre.android.style.sources.TileSet
 import org.maplibre.geojson.Feature
 import org.maplibre.geojson.LineString
 import org.maplibre.geojson.Point
 
 // Free public MapLibre demo style — no API key needed. Swap for a hosted
 // style/tile provider before shipping to production.
-private const val STYLE_URL = "https://demotiles.maplibre.org/style.json"
+private const val STREET_STYLE_URL = "https://demotiles.maplibre.org/style.json"
+
+// Esri's public World Imagery + World Transportation tile services — also
+// free/keyless, standard combo for a satellite-with-roads "hybrid" look.
+private const val SATELLITE_TILE_URL =
+    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
+private const val ROADS_OVERLAY_TILE_URL =
+    "https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Transportation/MapServer/tile/{z}/{y}/{x}"
+private const val ESRI_ATTRIBUTION = "Esri, Maxar, Earthstar Geographics, and the GIS User Community"
+private const val TILE_JSON_VERSION = "2.1.0"
+private const val RASTER_TILE_SIZE = 256
+
 private const val ROUTE_SOURCE_ID = "roadlog-route-source"
 private const val ROUTE_LAYER_ID = "roadlog-route-layer"
+private const val SATELLITE_SOURCE_ID = "roadlog-satellite-source"
+private const val SATELLITE_LAYER_ID = "roadlog-satellite-layer"
+private const val ROADS_OVERLAY_SOURCE_ID = "roadlog-roads-overlay-source"
+private const val ROADS_OVERLAY_LAYER_ID = "roadlog-roads-overlay-layer"
 private const val CAMERA_PADDING_PX = 64
 
+enum class MapType { STREET, SATELLITE }
+
 /**
- * Renders a route as a polyline framed to fit its bounds. [onMapReady] fires
- * exactly once per composable instance (not once per style (re)load), so
- * callers can safely attach map listeners without risking duplicates.
+ * Renders a route as a polyline framed to fit its bounds, with a built-in
+ * street/satellite toggle in the top-right corner. [onMapReady] fires once
+ * the underlying map object exists — independent of which style is
+ * currently applied — so callers can safely attach map listeners (e.g. a
+ * tap handler) without worrying about the style toggle re-triggering them.
  */
 @Composable
 fun RouteMapView(
@@ -88,32 +116,84 @@ fun RouteMapView(
     }
 
     val routeColorArgb = remember { AccentGreen.toArgb() }
-    // Style application is a one-time setup for this MapView instance (not
-    // re-run per recomposition) — otherwise every unrelated recomposition of
-    // the containing screen would reload the style/tiles from the network.
-    var styleApplied by remember { mutableStateOf(false) }
+    var map by remember { mutableStateOf<MapLibreMap?>(null) }
+    var reportedReady by remember { mutableStateOf(false) }
+    var mapType by remember { mutableStateOf(MapType.STREET) }
 
-    AndroidView(
-        modifier = modifier,
-        factory = { mapView },
-        update = { view ->
-            if (!styleApplied) {
-                styleApplied = true
-                view.getMapAsync { map ->
-                    map.setStyle(Style.Builder().fromUri(STYLE_URL)) { style ->
-                        drawRoute(style, points, routeColorArgb)
-                        frameCamera(map, points)
-                        onMapReady(map)
+    Box(modifier = modifier) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { mapView },
+            update = { view ->
+                view.getMapAsync { readyMap ->
+                    map = readyMap
+                    if (!reportedReady) {
+                        reportedReady = true
+                        onMapReady(readyMap)
                     }
                 }
             }
+        )
+
+        // Re-applies only when the map first becomes available or the user
+        // toggles map type — not on every unrelated recomposition, which
+        // would otherwise reload the style/tiles from the network each time.
+        val currentMap = map
+        if (currentMap != null) {
+            LaunchedEffect(currentMap, mapType, points) {
+                currentMap.setStyle(styleBuilderFor(mapType)) { style ->
+                    drawRoute(style, points, routeColorArgb)
+                    frameCamera(currentMap, points)
+                }
+            }
         }
+
+        MapTypeToggle(
+            mapType = mapType,
+            onToggle = { mapType = if (mapType == MapType.STREET) MapType.SATELLITE else MapType.STREET },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(8.dp)
+        )
+    }
+}
+
+@Composable
+private fun MapTypeToggle(mapType: MapType, onToggle: () -> Unit, modifier: Modifier = Modifier) {
+    Text(
+        text = if (mapType == MapType.STREET) "SATELLITE" else "MAP",
+        style = MaterialTheme.typography.labelSmall,
+        color = AccentGreen,
+        fontWeight = FontWeight.Bold,
+        modifier = modifier
+            .background(SurfaceRaised, RoundedCornerShape(8.dp))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 10.dp, vertical = 6.dp)
     )
 }
 
-private fun drawRoute(style: Style, points: List<LatLng>, routeColorArgb: Int) {
-    if (style.getSource(ROUTE_SOURCE_ID) != null) return // already drawn for this style load
+private fun styleBuilderFor(mapType: MapType): Style.Builder = when (mapType) {
+    MapType.STREET -> Style.Builder().fromUri(STREET_STYLE_URL)
+    MapType.SATELLITE -> {
+        val satelliteTiles = TileSet(TILE_JSON_VERSION, SATELLITE_TILE_URL).apply {
+            setAttribution(ESRI_ATTRIBUTION)
+            setMinZoom(0f)
+            setMaxZoom(19f)
+        }
+        val roadsTiles = TileSet(TILE_JSON_VERSION, ROADS_OVERLAY_TILE_URL).apply {
+            setAttribution(ESRI_ATTRIBUTION)
+            setMinZoom(0f)
+            setMaxZoom(19f)
+        }
+        Style.Builder()
+            .withSource(RasterSource(SATELLITE_SOURCE_ID, satelliteTiles, RASTER_TILE_SIZE))
+            .withLayer(RasterLayer(SATELLITE_LAYER_ID, SATELLITE_SOURCE_ID))
+            .withSource(RasterSource(ROADS_OVERLAY_SOURCE_ID, roadsTiles, RASTER_TILE_SIZE))
+            .withLayer(RasterLayer(ROADS_OVERLAY_LAYER_ID, ROADS_OVERLAY_SOURCE_ID))
+    }
+}
 
+private fun drawRoute(style: Style, points: List<LatLng>, routeColorArgb: Int) {
     val line = LineString.fromLngLats(points.map { Point.fromLngLat(it.longitude, it.latitude) })
     style.addSource(GeoJsonSource(ROUTE_SOURCE_ID, Feature.fromGeometry(line)))
     style.addLayer(
