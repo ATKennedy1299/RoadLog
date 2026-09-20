@@ -22,6 +22,7 @@ import com.roadlog.RoadLogApp
 import com.roadlog.service.LocationTrackingService
 import com.roadlog.ui.screens.HomeScreen
 import com.roadlog.ui.screens.TripDetailScreen
+import com.roadlog.ui.screens.TripReplayScreen
 import com.roadlog.ui.theme.RoadLogTheme
 
 class MainActivity : ComponentActivity() {
@@ -84,6 +85,24 @@ class MainActivity : ComponentActivity() {
                         )
                         TripDetailScreen(
                             viewModel = detailViewModel,
+                            onBack = { navController.popBackStack() },
+                            onOpenReplay = { navController.navigate("replay/$tripId") }
+                        )
+                    }
+                    composable(
+                        route = "replay/{tripId}",
+                        arguments = listOf(navArgument("tripId") { type = NavType.LongType })
+                    ) { backStackEntry ->
+                        val tripId = backStackEntry.arguments?.getLong("tripId") ?: return@composable
+                        val app = application as RoadLogApp
+                        val replayViewModel: TripReplayViewModel = viewModel(
+                            key = "trip-replay-$tripId",
+                            factory = viewModelFactory {
+                                initializer { TripReplayViewModel(tripId, app.repository, app.unitsRepository) }
+                            }
+                        )
+                        TripReplayScreen(
+                            viewModel = replayViewModel,
                             onBack = { navController.popBackStack() }
                         )
                     }

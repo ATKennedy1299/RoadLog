@@ -36,6 +36,7 @@ import com.roadlog.ui.theme.AccentGreen
 import com.roadlog.ui.theme.AccentRed
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
+import org.maplibre.android.geometry.LatLng
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -43,12 +44,14 @@ import java.util.Locale
 @Composable
 fun TripDetailScreen(
     viewModel: TripDetailViewModel,
-    onBack: () -> Unit
+    onBack: () -> Unit,
+    onOpenReplay: () -> Unit
 ) {
     val trip by viewModel.trip.collectAsStateWithLifecycle()
     val vehicleProfile by viewModel.vehicleProfile.collectAsStateWithLifecycle()
     val unit by viewModel.unit.collectAsStateWithLifecycle()
     val routePoints by viewModel.routePoints.collectAsStateWithLifecycle()
+    val routeLatLngs = remember(routePoints) { routePoints.map { LatLng(it.latitude, it.longitude) } }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     Column(
@@ -80,11 +83,23 @@ fun TripDetailScreen(
             )
         } else {
             RouteMapView(
-                points = routePoints,
+                points = routeLatLngs,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(220.dp)
-                    .clip(RoundedCornerShape(16.dp))
+                    .clip(RoundedCornerShape(16.dp)),
+                onMapReady = { map ->
+                    map.addOnMapClickListener {
+                        onOpenReplay()
+                        true
+                    }
+                }
+            )
+            Text(
+                text = "Tap the map to replay this trip",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary,
+                modifier = Modifier.padding(top = 6.dp)
             )
             Spacer(Modifier.height(20.dp))
             TripStats(trip = currentTrip, vehicleProfile = vehicleProfile, unit = unit)
