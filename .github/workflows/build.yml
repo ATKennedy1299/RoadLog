@@ -37,7 +37,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          tail -n 200 build-output.log > failure-excerpt.txt
+          { grep -E "^e: |error:" build-output.log; echo "---tail---"; tail -n 100 build-output.log; } > failure-excerpt.txt
           BODY=$(jq -Rs '"### Build failed: " + "${{ github.workflow }}" + "\n```\n" + . + "\n```"' failure-excerpt.txt)
           curl -sS -X POST \
             -H "Authorization: token $GITHUB_TOKEN" \
