@@ -9,6 +9,7 @@ import com.roadlog.data.UnitsRepository
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 class HomeViewModel(
     private val repository: TripRepository,
@@ -24,4 +25,9 @@ class HomeViewModel(
     val unit: StateFlow<DistanceUnit> = unitsRepository.unit
 
     fun toggleUnit() = unitsRepository.toggle()
+
+    /** Not offered in the UI for the trip currently being recorded. */
+    fun deleteTrip(trip: Trip) {
+        viewModelScope.launch { repository.deleteTrip(trip) }
+    }
 }

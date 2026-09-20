@@ -9,7 +9,9 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -19,6 +21,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.roadlog.data.DistanceUnit
 import com.roadlog.data.Trip
+import com.roadlog.data.TripStatus
 import com.roadlog.ui.HomeViewModel
 import com.roadlog.ui.theme.AccentAmber
 import com.roadlog.ui.theme.AccentGreen
@@ -28,6 +31,7 @@ import com.roadlog.ui.theme.TextSecondary
 import java.text.SimpleDateFormat
 import java.util.*
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
@@ -38,6 +42,7 @@ fun HomeScreen(
     val activeTrip by viewModel.activeTrip.collectAsStateWithLifecycle()
     val history by viewModel.tripHistory.collectAsStateWithLifecycle()
     val unit by viewModel.unit.collectAsStateWithLifecycle()
+    var pendingDelete by remember { mutableStateOf<Trip?>(null) }
 
     Column(
         modifier = Modifier
@@ -89,10 +94,83 @@ fun HomeScreen(
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(history, key = { it.id }) { trip ->
-                    TripRow(trip, unit, onClick = { onTripClick(trip.id) })
+                    if (trip.status == TripStatus.ACTIVE) {
+                        // Can't delete the trip currently being recorded.
+                        TripRow(trip, unit, onClick = { onTripClick(trip.id) })
+                    } else {
+                        DismissibleTripRow(
+                            trip = trip,
+                            unit = unit,
+                            onClick = { onTripClick(trip.id) },
+                            onSwipeToDelete = { pendingDelete = trip }
+                        )
+                    }
                 }
             }
         }
+    }
+
+    val tripPendingDelete = pendingDelete
+    if (tripPendingDelete != null) {
+        DeleteTripDialog(
+            onConfirm = {
+                viewModel.deleteTrip(tripPendingDelete)
+                pendingDelete = null
+            },
+            onDismiss = { pendingDelete = null }
+        )
+    }
+}
+
+@Composable
+fun DeleteTripDialog(onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Delete this trip?") },
+        text = { Text("This permanently deletes the trip and its recorded GPS points.") },
+        confirmButton = {
+            TextButton(onClick = onConfirm) {
+                Text("DELETE", color = AccentRed)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("CANCEL") }
+        }
+    )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun DismissibleTripRow(
+    trip: Trip,
+    unit: DistanceUnit,
+    onClick: () -> Unit,
+    onSwipeToDelete: () -> Unit
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            if (value != SwipeToDismissBoxValue.Settled) {
+                onSwipeToDelete()
+            }
+            false // never auto-commit the swipe; the confirmation dialog decides
+        }
+    )
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(AccentRed, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 20.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End
+            ) {
+                Text("DELETE", color = Color.Black, fontWeight = FontWeight.Bold)
+            }
+        }
+    ) {
+        TripRow(trip, unit, onClick)
     }
 }
 

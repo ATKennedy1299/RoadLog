@@ -11,21 +11,28 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.roadlog.data.DistanceUnit
 import com.roadlog.data.Trip
+import com.roadlog.data.TripStatus
 import com.roadlog.data.VehicleProfile
 import com.roadlog.ui.TripDetailViewModel
 import com.roadlog.ui.theme.AccentAmber
 import com.roadlog.ui.theme.AccentGreen
+import com.roadlog.ui.theme.AccentRed
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
 import java.text.SimpleDateFormat
@@ -40,6 +47,7 @@ fun TripDetailScreen(
     val trip by viewModel.trip.collectAsStateWithLifecycle()
     val vehicleProfile by viewModel.vehicleProfile.collectAsStateWithLifecycle()
     val unit by viewModel.unit.collectAsStateWithLifecycle()
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -70,7 +78,32 @@ fun TripDetailScreen(
             )
         } else {
             TripStats(trip = currentTrip, vehicleProfile = vehicleProfile, unit = unit)
+
+            if (currentTrip.status != TripStatus.ACTIVE) {
+                Spacer(Modifier.height(24.dp))
+                Button(
+                    onClick = { showDeleteDialog = true },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = AccentRed,
+                        contentColor = Color.Black
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth().height(56.dp)
+                ) {
+                    Text("DELETE TRIP", fontWeight = FontWeight.Bold)
+                }
+            }
         }
+    }
+
+    if (showDeleteDialog) {
+        DeleteTripDialog(
+            onConfirm = {
+                showDeleteDialog = false
+                viewModel.deleteTrip(onDeleted = onBack)
+            },
+            onDismiss = { showDeleteDialog = false }
+        )
     }
 }
 

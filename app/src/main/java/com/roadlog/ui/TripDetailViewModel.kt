@@ -35,4 +35,12 @@ class TripDetailViewModel(
             }
         }
     }
+
+    fun deleteTrip(onDeleted: () -> Unit) {
+        val current = trip.value ?: return
+        viewModelScope.launch {
+            repository.deleteTrip(current)
+            onDeleted()
+        }
+    }
 }

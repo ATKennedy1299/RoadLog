@@ -22,6 +22,9 @@ class TripRepository(private val db: AppDatabase) {
     suspend fun getVehicleProfile(vehicleProfileId: Long): VehicleProfile? =
         db.vehicleProfileDao().getById(vehicleProfileId)
 
+    /** Cascade-deletes the trip's location_points via Room's ForeignKey.CASCADE. */
+    suspend fun deleteTrip(trip: Trip) = db.tripDao().delete(trip)
+
     suspend fun startTrip(vehicleProfileId: Long = DefaultVehicleProfile.ID): Trip {
         val trip = Trip(
             vehicleProfileId = vehicleProfileId,
