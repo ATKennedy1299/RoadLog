@@ -10,6 +10,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
+// Bumping `version` requires adding a Room Migration in .addMigrations()
+// below — without one, Room throws on the user's next launch after an
+// update rather than silently deleting their trips. Never reach for
+// fallbackToDestructiveMigration() as the fix for that; it wipes the DB.
 @Database(
     entities = [Trip::class, LocationPoint::class, VehicleProfile::class],
     version = 1,

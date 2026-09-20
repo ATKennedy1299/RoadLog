@@ -16,7 +16,25 @@ android {
         versionName = "0.1.0-phase1"
     }
 
+    signingConfigs {
+        getByName("debug") {
+            // Committed on purpose (it's a debug-only key, never used for a
+            // release build) so every build — CI or local — signs with the
+            // same certificate. Without this, each machine/CI run generates
+            // its own debug key, and Android refuses to install an update
+            // over a build signed with a different one: you'd have to
+            // uninstall first, which wipes the app's data.
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = false
         }
