@@ -21,6 +21,8 @@ class TripRepository(private val db: AppDatabase) {
     suspend fun getActiveTrip(): Trip? = db.tripDao().getActiveTrip()
     suspend fun getVehicleProfile(vehicleProfileId: Long): VehicleProfile? =
         db.vehicleProfileDao().getById(vehicleProfileId)
+    suspend fun getRoutePoints(tripId: Long): List<LocationPoint> =
+        db.locationPointDao().getAcceptedPointsForTrip(tripId)
 
     /** Cascade-deletes the trip's location_points via Room's ForeignKey.CASCADE. */
     suspend fun deleteTrip(trip: Trip) = db.tripDao().delete(trip)

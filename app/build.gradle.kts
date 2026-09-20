@@ -41,7 +41,15 @@ android {
 
     packaging {
         resources {
-            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+            excludes += setOf(
+                "/META-INF/{AL2.0,LGPL2.1}",
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/INDEX.LIST"
+            )
         }
     }
 }
@@ -66,6 +74,9 @@ dependencies {
 
     // Location
     implementation("com.google.android.gms:play-services-location:21.3.0")
+
+    // Map (route display + replay)
+    implementation("org.maplibre.gl:android-sdk:11.0.0")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")

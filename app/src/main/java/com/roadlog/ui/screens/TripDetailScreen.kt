@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -47,6 +48,7 @@ fun TripDetailScreen(
     val trip by viewModel.trip.collectAsStateWithLifecycle()
     val vehicleProfile by viewModel.vehicleProfile.collectAsStateWithLifecycle()
     val unit by viewModel.unit.collectAsStateWithLifecycle()
+    val routePoints by viewModel.routePoints.collectAsStateWithLifecycle()
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     Column(
@@ -77,6 +79,14 @@ fun TripDetailScreen(
                 color = TextSecondary
             )
         } else {
+            RouteMapView(
+                points = routePoints,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+                    .clip(RoundedCornerShape(16.dp))
+            )
+            Spacer(Modifier.height(20.dp))
             TripStats(trip = currentTrip, vehicleProfile = vehicleProfile, unit = unit)
 
             if (currentTrip.status != TripStatus.ACTIVE) {

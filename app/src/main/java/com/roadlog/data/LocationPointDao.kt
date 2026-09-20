@@ -17,6 +17,16 @@ interface LocationPointDao {
     @Query("SELECT * FROM location_points WHERE tripId = :tripId ORDER BY timestampEpochMs ASC")
     fun observePointsForTrip(tripId: Long): Flow<List<LocationPoint>>
 
+    /** Route/replay source: excludes GpsFilter-flagged jumps so the drawn path doesn't zigzag. */
+    @Query(
+        """
+        SELECT * FROM location_points
+        WHERE tripId = :tripId AND isFiltered = 0
+        ORDER BY timestampEpochMs ASC
+        """
+    )
+    suspend fun getAcceptedPointsForTrip(tripId: Long): List<LocationPoint>
+
     /** Most recent *accepted* (non-filtered) point — used by GpsFilter for jump detection. */
     @Query(
         """
