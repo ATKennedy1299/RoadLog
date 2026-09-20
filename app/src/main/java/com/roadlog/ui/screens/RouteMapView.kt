@@ -176,14 +176,14 @@ private fun styleBuilderFor(mapType: MapType): Style.Builder = when (mapType) {
     MapType.STREET -> Style.Builder().fromUri(STREET_STYLE_URL)
     MapType.SATELLITE -> {
         val satelliteTiles = TileSet(TILE_JSON_VERSION, SATELLITE_TILE_URL).apply {
-            setAttribution(ESRI_ATTRIBUTION)
-            setMinZoom(0f)
-            setMaxZoom(19f)
+            attribution = ESRI_ATTRIBUTION
+            minZoom = 0f
+            maxZoom = 19f
         }
         val roadsTiles = TileSet(TILE_JSON_VERSION, ROADS_OVERLAY_TILE_URL).apply {
-            setAttribution(ESRI_ATTRIBUTION)
-            setMinZoom(0f)
-            setMaxZoom(19f)
+            attribution = ESRI_ATTRIBUTION
+            minZoom = 0f
+            maxZoom = 19f
         }
         Style.Builder()
             .withSource(RasterSource(SATELLITE_SOURCE_ID, satelliteTiles, RASTER_TILE_SIZE))
