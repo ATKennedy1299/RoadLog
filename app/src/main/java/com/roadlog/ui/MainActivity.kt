@@ -18,7 +18,10 @@ import com.roadlog.ui.theme.RoadLogTheme
 class MainActivity : ComponentActivity() {
 
     private val viewModel: HomeViewModel by viewModels {
-        ViewModelFactory((application as RoadLogApp).repository)
+        ViewModelFactory(
+            (application as RoadLogApp).repository,
+            (application as RoadLogApp).unitsRepository
+        )
     }
 
     // Fine + coarse location must be granted before we ever try to start

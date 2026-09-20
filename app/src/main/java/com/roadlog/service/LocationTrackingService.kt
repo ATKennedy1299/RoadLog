@@ -45,6 +45,7 @@ class LocationTrackingService : Service() {
     private var currentTripMaxSpeed = 0.0
 
     private val repository by lazy { (application as RoadLogApp).repository }
+    private val unitsRepository by lazy { (application as RoadLogApp).unitsRepository }
 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -169,10 +170,12 @@ class LocationTrackingService : Service() {
             this, 0, openAppIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val distanceKm = currentTripDistance / 1000.0
-        val maxSpeedKmh = currentTripMaxSpeed * 3.6
+        val unit = unitsRepository.unit.value
+        val distance = unit.metersToDistance(currentTripDistance)
+        val maxSpeed = unit.mpsToSpeed(currentTripMaxSpeed)
         val text = String.format(
-            Locale.US, "%.2f km · max %.0f km/h", distanceKm, maxSpeedKmh
+            Locale.US, "%.2f %s · max %.0f %s",
+            distance, unit.distanceLabel, maxSpeed, unit.speedLabel
         )
         return NotificationCompat.Builder(this, NOTIFICATION_CHANNEL_ID)
             .setContentTitle("RoadLog — Recording trip")

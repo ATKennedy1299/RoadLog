@@ -1,6 +1,7 @@
 package com.roadlog.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -16,6 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.roadlog.data.DistanceUnit
 import com.roadlog.data.Trip
 import com.roadlog.ui.HomeViewModel
 import com.roadlog.ui.theme.AccentAmber
@@ -34,6 +36,7 @@ fun HomeScreen(
 ) {
     val activeTrip by viewModel.activeTrip.collectAsStateWithLifecycle()
     val history by viewModel.tripHistory.collectAsStateWithLifecycle()
+    val unit by viewModel.unit.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -41,11 +44,18 @@ fun HomeScreen(
             .background(MaterialTheme.colorScheme.background)
             .padding(20.dp)
     ) {
-        Text(
-            text = "ROADLOG",
-            style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary
-        )
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "ROADLOG",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary
+            )
+            UnitToggle(unit = unit, onToggle = viewModel::toggleUnit)
+        }
         Spacer(Modifier.height(4.dp))
         Text(
             text = if (activeTrip != null) "RECORDING" else "READY",
@@ -78,9 +88,33 @@ fun HomeScreen(
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(history, key = { it.id }) { trip ->
-                    TripRow(trip)
+                    TripRow(trip, unit)
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun UnitToggle(unit: DistanceUnit, onToggle: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .background(SurfaceRaised, RoundedCornerShape(8.dp))
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    ) {
+        DistanceUnit.entries.forEach { option ->
+            val selected = option == unit
+            Text(
+                text = if (option == DistanceUnit.METRIC) "KM" else "MI",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (selected) AccentGreen else TextSecondary,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                modifier = Modifier
+                    .padding(horizontal = 6.dp)
+                    .then(
+                        if (!selected) Modifier.clickable { onToggle() } else Modifier
+                    )
+            )
         }
     }
 }
@@ -107,11 +141,11 @@ private fun StartStopButton(isRecording: Boolean, onStart: () -> Unit, onStop: (
 }
 
 @Composable
-private fun TripRow(trip: Trip) {
+private fun TripRow(trip: Trip, unit: DistanceUnit) {
     val dateFormat = remember(trip.id) { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
     val durationSeconds = ((trip.endTimeEpochMs ?: System.currentTimeMillis()) - trip.startTimeEpochMs) / 1000
-    val distanceKm = trip.distanceMeters / 1000.0
-    val maxSpeedKmh = trip.maxSpeedMps * 3.6
+    val distance = unit.metersToDistance(trip.distanceMeters)
+    val maxSpeed = unit.mpsToSpeed(trip.maxSpeedMps)
 
     Column(
         modifier = Modifier
@@ -136,9 +170,9 @@ private fun TripRow(trip: Trip) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Stat(label = "DISTANCE", value = String.format(Locale.US, "%.1f km", distanceKm))
+            Stat(label = "DISTANCE", value = String.format(Locale.US, "%.1f %s", distance, unit.distanceLabel))
             Stat(label = "DURATION", value = formatDuration(durationSeconds))
-            Stat(label = "MAX SPEED", value = String.format(Locale.US, "%.0f km/h", maxSpeedKmh))
+            Stat(label = "MAX SPEED", value = String.format(Locale.US, "%.0f %s", maxSpeed, unit.speedLabel))
         }
     }
 }
