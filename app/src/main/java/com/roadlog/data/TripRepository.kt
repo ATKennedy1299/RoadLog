@@ -14,10 +14,13 @@ class TripRepository(private val db: AppDatabase) {
 
     fun observeAllTrips(): Flow<List<Trip>> = db.tripDao().observeAllTrips()
     fun observeActiveTrip(): Flow<Trip?> = db.tripDao().observeActiveTrip()
+    fun observeTrip(tripId: Long): Flow<Trip?> = db.tripDao().observeById(tripId)
     fun observePointsForTrip(tripId: Long): Flow<List<LocationPoint>> =
         db.locationPointDao().observePointsForTrip(tripId)
 
     suspend fun getActiveTrip(): Trip? = db.tripDao().getActiveTrip()
+    suspend fun getVehicleProfile(vehicleProfileId: Long): VehicleProfile? =
+        db.vehicleProfileDao().getById(vehicleProfileId)
 
     suspend fun startTrip(vehicleProfileId: Long = DefaultVehicleProfile.ID): Trip {
         val trip = Trip(

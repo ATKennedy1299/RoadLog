@@ -10,9 +10,18 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.lifecycle.viewmodel.initializer
+import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.navigation.NavType
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
 import com.roadlog.RoadLogApp
 import com.roadlog.service.LocationTrackingService
 import com.roadlog.ui.screens.HomeScreen
+import com.roadlog.ui.screens.TripDetailScreen
 import com.roadlog.ui.theme.RoadLogTheme
 
 class MainActivity : ComponentActivity() {
@@ -51,11 +60,34 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             RoadLogTheme {
-                HomeScreen(
-                    viewModel = viewModel,
-                    onStartTrip = ::onStartTripClicked,
-                    onStopTrip = ::onStopTripClicked
-                )
+                val navController = rememberNavController()
+                NavHost(navController = navController, startDestination = "home") {
+                    composable("home") {
+                        HomeScreen(
+                            viewModel = viewModel,
+                            onStartTrip = ::onStartTripClicked,
+                            onStopTrip = ::onStopTripClicked,
+                            onTripClick = { tripId -> navController.navigate("trip/$tripId") }
+                        )
+                    }
+                    composable(
+                        route = "trip/{tripId}",
+                        arguments = listOf(navArgument("tripId") { type = NavType.LongType })
+                    ) { backStackEntry ->
+                        val tripId = backStackEntry.arguments?.getLong("tripId") ?: return@composable
+                        val app = application as RoadLogApp
+                        val detailViewModel: TripDetailViewModel = viewModel(
+                            key = "trip-detail-$tripId",
+                            factory = viewModelFactory {
+                                initializer { TripDetailViewModel(tripId, app.repository, app.unitsRepository) }
+                            }
+                        )
+                        TripDetailScreen(
+                            viewModel = detailViewModel,
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                }
             }
         }
     }

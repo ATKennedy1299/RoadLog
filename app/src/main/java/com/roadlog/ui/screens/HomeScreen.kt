@@ -32,7 +32,8 @@ import java.util.*
 fun HomeScreen(
     viewModel: HomeViewModel,
     onStartTrip: () -> Unit,
-    onStopTrip: () -> Unit
+    onStopTrip: () -> Unit,
+    onTripClick: (Long) -> Unit
 ) {
     val activeTrip by viewModel.activeTrip.collectAsStateWithLifecycle()
     val history by viewModel.tripHistory.collectAsStateWithLifecycle()
@@ -88,7 +89,7 @@ fun HomeScreen(
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 items(history, key = { it.id }) { trip ->
-                    TripRow(trip, unit)
+                    TripRow(trip, unit, onClick = { onTripClick(trip.id) })
                 }
             }
         }
@@ -141,7 +142,7 @@ private fun StartStopButton(isRecording: Boolean, onStart: () -> Unit, onStop: (
 }
 
 @Composable
-private fun TripRow(trip: Trip, unit: DistanceUnit) {
+private fun TripRow(trip: Trip, unit: DistanceUnit, onClick: () -> Unit) {
     val dateFormat = remember(trip.id) { SimpleDateFormat("MMM d, HH:mm", Locale.getDefault()) }
     val durationSeconds = ((trip.endTimeEpochMs ?: System.currentTimeMillis()) - trip.startTimeEpochMs) / 1000
     val distance = unit.metersToDistance(trip.distanceMeters)
@@ -151,6 +152,7 @@ private fun TripRow(trip: Trip, unit: DistanceUnit) {
         modifier = Modifier
             .fillMaxWidth()
             .background(SurfaceRaised, RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
             .padding(16.dp)
     ) {
         Row(
@@ -170,23 +172,9 @@ private fun TripRow(trip: Trip, unit: DistanceUnit) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Stat(label = "DISTANCE", value = String.format(Locale.US, "%.1f %s", distance, unit.distanceLabel))
-            Stat(label = "DURATION", value = formatDuration(durationSeconds))
-            Stat(label = "MAX SPEED", value = String.format(Locale.US, "%.0f %s", maxSpeed, unit.speedLabel))
+            StatText(label = "DISTANCE", value = String.format(Locale.US, "%.1f %s", distance, unit.distanceLabel))
+            StatText(label = "DURATION", value = formatDuration(durationSeconds))
+            StatText(label = "MAX SPEED", value = String.format(Locale.US, "%.0f %s", maxSpeed, unit.speedLabel))
         }
     }
-}
-
-@Composable
-private fun Stat(label: String, value: String) {
-    Column(horizontalAlignment = Alignment.Start) {
-        Text(text = label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
-        Text(text = value, style = MaterialTheme.typography.titleMedium, color = AccentGreen)
-    }
-}
-
-private fun formatDuration(totalSeconds: Long): String {
-    val h = totalSeconds / 3600
-    val m = (totalSeconds % 3600) / 60
-    return if (h > 0) "${h}h ${m}m" else "${m}m"
 }

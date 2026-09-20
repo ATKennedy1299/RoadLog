@@ -21,6 +21,9 @@ interface TripDao {
     @Query("SELECT * FROM trips WHERE id = :tripId")
     suspend fun getById(tripId: Long): Trip?
 
+    @Query("SELECT * FROM trips WHERE id = :tripId")
+    fun observeById(tripId: Long): Flow<Trip?>
+
     @Query("SELECT * FROM trips ORDER BY startTimeEpochMs DESC")
     fun observeAllTrips(): Flow<List<Trip>>
 
