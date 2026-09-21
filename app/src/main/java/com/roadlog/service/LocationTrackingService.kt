@@ -15,6 +15,8 @@ import com.roadlog.RoadLogApp
 import com.roadlog.data.Trip
 import com.roadlog.ui.MainActivity
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.util.Locale
 
 /**
@@ -22,7 +24,9 @@ import java.util.Locale
  * lifetime of a trip. Intentionally dumb: it does not decide trip state on
  * its own beyond what's in the DB. On (re)creation it checks for an ACTIVE
  * trip and resumes tracking against it — this is what makes the recording
- * survive process death, not just Activity destruction.
+ * survive process death, not just Activity destruction. If that ACTIVE trip
+ * hasn't seen a GPS fix in a long time, it's treated as abandoned and
+ * finalized instead of resumed (see TripRepository.recoverActiveTrip).
  */
 class LocationTrackingService : Service() {
 
@@ -40,9 +44,21 @@ class LocationTrackingService : Service() {
 
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private lateinit var fusedLocationClient: FusedLocationProviderClient
-    private var activeTripId: Long? = null
-    private var currentTripDistance = 0.0
-    private var currentTripMaxSpeed = 0.0
+    @Volatile private var activeTripId: Long? = null
+    @Volatile private var currentTripDistance = 0.0
+    @Volatile private var currentTripMaxSpeed = 0.0
+
+    // Guards ingestFix() calls so a batch of fixes delivered in one
+    // LocationResult is always persisted in chronological order, one at a
+    // time, even if two onLocationResult() callbacks' coroutines overlap.
+    private val ingestionMutex = Mutex()
+
+    // Guards activeTripId and the ACTIVE-trip row against concurrent
+    // start/stop/recovery: onCreate()'s recovery check, onStartTripRequested()
+    // and onStopTripRequested() can all fire close together (e.g. a
+    // START_STICKY restart racing a user tapping "start") and must not
+    // interleave with one another.
+    private val tripStateMutex = Mutex()
 
     private val repository by lazy { (application as RoadLogApp).repository }
     private val unitsRepository by lazy { (application as RoadLogApp).unitsRepository }
@@ -50,23 +66,32 @@ class LocationTrackingService : Service() {
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
             val tripId = activeTripId ?: return
-            val location = result.lastLocation ?: return
+            if (result.locations.isEmpty()) return
             serviceScope.launch {
-                repository.ingestFix(
-                    tripId = tripId,
-                    timestampEpochMs = location.time,
-                    latitude = location.latitude,
-                    longitude = location.longitude,
-                    gpsSpeedMps = if (location.hasSpeed()) location.speed else null,
-                    accuracyMeters = if (location.hasAccuracy()) location.accuracy else 999f,
-                    altitudeMeters = if (location.hasAltitude()) location.altitude else null,
-                    bearing = if (location.hasBearing()) location.bearing else null
-                )
-                // Refresh cached aggregates for the notification text.
-                repository.getActiveTrip()?.let { trip ->
-                    currentTripDistance = trip.distanceMeters
-                    currentTripMaxSpeed = trip.maxSpeedMps
-                    updateNotification(trip)
+                ingestionMutex.withLock {
+                    // result.locations is documented oldest-to-newest; ingest
+                    // sequentially, inside the lock, so fixes are always
+                    // written in order and never interleaved with another
+                    // batch's fixes.
+                    for (location in result.locations) {
+                        repository.ingestFix(
+                            tripId = tripId,
+                            timestampEpochMs = location.time,
+                            latitude = location.latitude,
+                            longitude = location.longitude,
+                            gpsSpeedMps = if (location.hasSpeed()) location.speed else null,
+                            accuracyMeters = if (location.hasAccuracy()) location.accuracy else 999f,
+                            altitudeMeters = if (location.hasAltitude()) location.altitude else null,
+                            bearing = if (location.hasBearing()) location.bearing else null
+                        )
+                    }
+                    // Refresh cached aggregates for the notification text
+                    // once per batch, not once per point.
+                    repository.getActiveTrip()?.let { trip ->
+                        currentTripDistance = trip.distanceMeters
+                        currentTripMaxSpeed = trip.maxSpeedMps
+                        updateNotification(trip)
+                    }
                 }
             }
         }
@@ -77,16 +102,20 @@ class LocationTrackingService : Service() {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         createNotificationChannel()
 
-        // Recover from process death: if the DB says a trip is ACTIVE,
-        // resume tracking against it immediately.
+        // Recover from process death: if the DB says a trip is ACTIVE and it
+        // isn't stale (see recoverActiveTrip), resume tracking against it
+        // immediately. A stale ACTIVE trip is finalized instead, so it can't
+        // absorb points from whatever new drive triggers the next start.
         serviceScope.launch {
-            repository.getActiveTrip()?.let { trip ->
-                activeTripId = trip.id
-                currentTripDistance = trip.distanceMeters
-                currentTripMaxSpeed = trip.maxSpeedMps
-                withContext(Dispatchers.Main) {
-                    startForeground(NOTIFICATION_ID, buildNotification(trip))
-                    beginLocationUpdates()
+            tripStateMutex.withLock {
+                repository.recoverActiveTrip()?.let { trip ->
+                    activeTripId = trip.id
+                    currentTripDistance = trip.distanceMeters
+                    currentTripMaxSpeed = trip.maxSpeedMps
+                    withContext(Dispatchers.Main) {
+                        startForeground(NOTIFICATION_ID, buildNotification(trip))
+                        beginLocationUpdates()
+                    }
                 }
             }
         }
@@ -103,8 +132,8 @@ class LocationTrackingService : Service() {
         return START_STICKY
     }
 
-    private suspend fun onStartTripRequested() {
-        if (activeTripId != null) return // already tracking
+    private suspend fun onStartTripRequested() = tripStateMutex.withLock {
+        if (activeTripId != null) return@withLock // already tracking
         val trip = repository.startTrip()
         activeTripId = trip.id
         currentTripDistance = 0.0
@@ -115,8 +144,8 @@ class LocationTrackingService : Service() {
         }
     }
 
-    private suspend fun onStopTripRequested() {
-        val tripId = activeTripId ?: return
+    private suspend fun onStopTripRequested() = tripStateMutex.withLock {
+        val tripId = activeTripId ?: return@withLock
         repository.stopTrip(tripId)
         activeTripId = null
         withContext(Dispatchers.Main) {

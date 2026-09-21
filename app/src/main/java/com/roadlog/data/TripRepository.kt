@@ -3,6 +3,7 @@ package com.roadlog.data
 import com.roadlog.service.GpsFilter
 import com.roadlog.util.DistanceUtils
 import kotlinx.coroutines.flow.Flow
+import java.util.concurrent.TimeUnit
 
 /**
  * Single source of truth used by both the UI and the foreground service.
@@ -11,6 +12,18 @@ import kotlinx.coroutines.flow.Flow
  * re-observes whatever the service already wrote.
  */
 class TripRepository(private val db: AppDatabase) {
+
+    companion object {
+        /**
+         * How long a trip can go without an accepted GPS fix before we treat
+         * it as abandoned rather than genuinely in-progress. Long enough that
+         * a real drive with a rough GPS gap (tunnel, parking garage, dead
+         * zone) won't get cut off; short enough to catch a trip that was
+         * never properly stopped (e.g. the app/service was killed and never
+         * restarted) before a later, unrelated drive can resume it.
+         */
+        private val STALE_TRIP_THRESHOLD_MS = TimeUnit.HOURS.toMillis(4)
+    }
 
     fun observeAllTrips(): Flow<List<Trip>> = db.tripDao().observeAllTrips()
     fun observeActiveTrip(): Flow<Trip?> = db.tripDao().observeActiveTrip()
@@ -102,5 +115,30 @@ class TripRepository(private val db: AppDatabase) {
 
     suspend fun ensureDefaultVehicleProfile() {
         db.vehicleProfileDao().insert(DefaultVehicleProfile.profile)
+    }
+
+    /**
+     * Called on service (re)start instead of a plain getActiveTrip(): an
+     * ACTIVE trip whose last accepted GPS fix is older than
+     * STALE_TRIP_THRESHOLD_MS is treated as abandoned (e.g. the process was
+     * killed and never cleanly stopped) rather than resumable, so a later,
+     * unrelated drive doesn't get appended to it. The trip is finalized using
+     * its own last-known-activity time (or its start time, if it never got a
+     * single accepted fix) as the end time, not "now" — so its recorded
+     * duration reflects real activity rather than the dead gap since. No GPS
+     * data is discarded either way: a finalized trip's points remain exactly
+     * as recorded.
+     */
+    suspend fun recoverActiveTrip(now: Long = System.currentTimeMillis()): Trip? {
+        val trip = db.tripDao().getActiveTrip() ?: return null
+        val lastActivityTimestamp =
+            db.locationPointDao().getLastAcceptedPoint(trip.id)?.timestampEpochMs
+                ?: trip.startTimeEpochMs
+        val ageMs = now - lastActivityTimestamp
+        if (ageMs > STALE_TRIP_THRESHOLD_MS) {
+            db.tripDao().completeTrip(trip.id, lastActivityTimestamp)
+            return null
+        }
+        return trip
     }
 }

@@ -132,7 +132,21 @@ fun RouteMapView(
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            // This fires when the composable is permanently removed from
+            // composition (e.g. navigating back from trip detail/replay),
+            // which is distinct from — and much more common than — the
+            // Activity itself reaching ON_DESTROY (this is a single-Activity
+            // app, so that only happens when the whole app closes). Without
+            // an explicit onDestroy() here, every map screen visited leaks
+            // its native GL/tile resources until the process dies. Run the
+            // full pause/stop/destroy sequence regardless of the map's last
+            // lifecycle state, since disposal can happen from any of them.
+            mapView.onPause()
+            mapView.onStop()
+            mapView.onDestroy()
+        }
     }
 
     val zoneColors = remember {
