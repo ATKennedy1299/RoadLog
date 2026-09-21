@@ -1,5 +1,11 @@
 package com.roadlog.ui.screens
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -44,10 +50,12 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapView
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
+import org.maplibre.android.style.layers.CircleLayer
 import org.maplibre.android.style.layers.LineLayer
 import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.RasterLayer
+import org.maplibre.android.style.layers.SymbolLayer
 import org.maplibre.android.style.sources.GeoJsonSource
 import org.maplibre.android.style.sources.RasterSource
 import org.maplibre.android.style.sources.TileSet
@@ -77,6 +85,13 @@ private const val SATELLITE_SOURCE_ID = "roadlog-satellite-source"
 private const val SATELLITE_LAYER_ID = "roadlog-satellite-layer"
 private const val ROADS_OVERLAY_SOURCE_ID = "roadlog-roads-overlay-source"
 private const val ROADS_OVERLAY_LAYER_ID = "roadlog-roads-overlay-layer"
+private const val START_MARKER_SOURCE_ID = "roadlog-start-marker-source"
+private const val START_MARKER_LAYER_ID = "roadlog-start-marker-layer"
+private const val END_MARKER_SOURCE_ID = "roadlog-end-marker-source"
+private const val END_MARKER_LAYER_ID = "roadlog-end-marker-layer"
+private const val END_PIN_IMAGE_ID = "roadlog-end-pin-icon"
+private const val PIN_WIDTH_DP = 26f
+private const val PIN_HEIGHT_DP = 34f
 private const val CAMERA_PADDING_PX = 64
 
 enum class MapType { STREET, SATELLITE }
@@ -86,8 +101,10 @@ data class RoutePoint(val latLng: LatLng, val speedMps: Float?)
 
 /**
  * Renders a route as a polyline colored by recorded speed (see [SpeedZone]),
- * with a built-in street/satellite toggle in the top-right corner
- * (satellite by default) and a speed-zone legend in the top-left. By
+ * with a white circle marking the trip's start and a pin — tinted to match
+ * the route's color at that end — marking the finish, a built-in
+ * street/satellite toggle in the top-right corner (satellite by default),
+ * and a speed-zone legend in the top-left. By
  * default also frames the camera to fit the whole route — pass
  * [autoFrameCamera] = false when the caller wants to own the camera itself
  * (e.g. trip replay's follow-camera). [onMapReady] fires once the
@@ -328,6 +345,82 @@ private fun drawRoute(style: Style, points: List<RoutePoint>, zoneColors: ZoneCo
             PropertyFactory.lineJoin(Property.LINE_JOIN_ROUND)
         )
     )
+
+    addStartMarker(style, points.first().latLng)
+    // Only meaningful once there's an actual route (2+ points, so a "last
+    // segment" exists) — tint the pin with that segment's zone color so it
+    // reads as part of the same route rather than an unrelated fixed color.
+    segments.lastOrNull()?.let { lastSegment ->
+        addEndMarker(style, points.last().latLng, zoneColors.forZone(lastSegment.zone))
+    }
+}
+
+private fun addStartMarker(style: Style, position: LatLng) {
+    style.addSource(GeoJsonSource(START_MARKER_SOURCE_ID, Point.fromLngLat(position.longitude, position.latitude)))
+    style.addLayer(
+        CircleLayer(START_MARKER_LAYER_ID, START_MARKER_SOURCE_ID).withProperties(
+            PropertyFactory.circleRadius(7f),
+            PropertyFactory.circleColor(android.graphics.Color.WHITE),
+            PropertyFactory.circleStrokeWidth(2f),
+            PropertyFactory.circleStrokeColor(android.graphics.Color.BLACK)
+        )
+    )
+}
+
+private fun addEndMarker(style: Style, position: LatLng, colorArgb: Int) {
+    // sdf=true treats the bitmap as a plain white-on-transparent silhouette
+    // that iconColor below can retint per trip, instead of baking one fixed
+    // color into the image.
+    style.addImage(END_PIN_IMAGE_ID, endPinBitmap, true)
+    style.addSource(GeoJsonSource(END_MARKER_SOURCE_ID, Point.fromLngLat(position.longitude, position.latitude)))
+    style.addLayer(
+        SymbolLayer(END_MARKER_LAYER_ID, END_MARKER_SOURCE_ID).withProperties(
+            PropertyFactory.iconImage(END_PIN_IMAGE_ID),
+            PropertyFactory.iconColor(colorArgb),
+            PropertyFactory.iconAnchor(Property.ICON_ANCHOR_BOTTOM),
+            PropertyFactory.iconAllowOverlap(true),
+            PropertyFactory.iconIgnorePlacement(true)
+        )
+    )
+}
+
+/**
+ * A simple map-pin silhouette (circular head + triangular tip), drawn once
+ * in plain white on transparent. Combined with sdf=true on addImage, its
+ * alpha shape gets tinted to whatever color a given trip's endpoint needs
+ * rather than requiring one bitmap per possible zone color.
+ */
+private val endPinBitmap: Bitmap by lazy {
+    val density = android.content.res.Resources.getSystem().displayMetrics.density
+    val width = (PIN_WIDTH_DP * density).toInt().coerceAtLeast(1)
+    val height = (PIN_HEIGHT_DP * density).toInt().coerceAtLeast(1)
+    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(bitmap)
+
+    val headRadius = width / 2f
+    val centerX = width / 2f
+    val centerY = headRadius
+
+    val pinShape = Path().apply { addCircle(centerX, centerY, headRadius, Path.Direction.CW) }
+    val tip = Path().apply {
+        moveTo(centerX - headRadius * 0.55f, centerY + headRadius * 0.55f)
+        lineTo(centerX, height.toFloat())
+        lineTo(centerX + headRadius * 0.55f, centerY + headRadius * 0.55f)
+        close()
+    }
+    pinShape.op(tip, Path.Op.UNION)
+
+    val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = android.graphics.Color.WHITE }
+    canvas.drawPath(pinShape, fillPaint)
+
+    // Punch a small hole near the top so the silhouette reads as a classic
+    // map pin rather than a plain teardrop.
+    val holePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+    }
+    canvas.drawCircle(centerX, centerY, headRadius * 0.4f, holePaint)
+
+    bitmap
 }
 
 /** Data-driven paint expression evaluated natively per feature — no per-frame Kotlin/Compose work. */
