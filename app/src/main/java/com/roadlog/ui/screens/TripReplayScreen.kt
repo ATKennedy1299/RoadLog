@@ -56,6 +56,14 @@ import kotlin.math.roundToInt
 private const val MARKER_SOURCE_ID = "roadlog-replay-marker-source"
 private const val MARKER_LAYER_ID = "roadlog-replay-marker-layer"
 private const val DEFAULT_REPLAY_ZOOM = 16.0
+// Longer than the ViewModel's tick interval so consecutive eases overlap and
+// blend into one continuous glide instead of a series of discrete jumps.
+private const val CAMERA_FOLLOW_EASE_MS = 220
+// Exponential smoothing factor for the displayed speed: raw per-point GPS
+// speed can jump noticeably between fixes, which reads as flicker/"multiple
+// values" at higher playback speeds where that jump plays out in a fraction
+// of a second. Lower = smoother but laggier; this keeps it responsive.
+private const val SPEED_SMOOTHING_ALPHA = 0.25
 
 @Composable
 fun TripReplayScreen(
@@ -170,12 +178,17 @@ private fun ReplayMap(
             }
         }
 
-        // Follow the marker every frame while following is enabled. Only
+        // Follow the marker every frame while following is enabled — eased
+        // rather than an instant jump, so overlapping animations blend into
+        // one smooth glide instead of visibly snapping on every tick. Only
         // recenters (keeps whatever zoom the user last set), and stops the
         // moment a manual gesture is detected above.
         if (currentMap != null && frame != null && isFollowing && initialCameraSet) {
             LaunchedEffect(frame, isFollowing) {
-                currentMap.moveCamera(CameraUpdateFactory.newLatLng(LatLng(frame.latitude, frame.longitude)))
+                currentMap.easeCamera(
+                    CameraUpdateFactory.newLatLng(LatLng(frame.latitude, frame.longitude)),
+                    CAMERA_FOLLOW_EASE_MS
+                )
             }
         }
 
@@ -192,6 +205,14 @@ private fun ReplayMap(
                 currentMap.projection.toScreenLocation(LatLng(frame.latitude, frame.longitude))
             }
 
+            // Raw per-point GPS speed can jump between fixes; smooth what's
+            // displayed so it reads as one settling number instead of a
+            // flicker of several values in quick succession.
+            var smoothedSpeedMps by remember { mutableStateOf(frame.speedMps) }
+            LaunchedEffect(frame) {
+                smoothedSpeedMps += (frame.speedMps - smoothedSpeedMps) * SPEED_SMOOTHING_ALPHA
+            }
+
             Box(
                 modifier = Modifier
                     .offset {
@@ -205,7 +226,7 @@ private fun ReplayMap(
             ) {
                 Column {
                     Text(
-                        text = String.format(Locale.US, "%.0f %s", unit.mpsToSpeed(frame.speedMps), unit.speedLabel),
+                        text = String.format(Locale.US, "%.0f %s", unit.mpsToSpeed(smoothedSpeedMps), unit.speedLabel),
                         color = AccentGreen,
                         fontWeight = FontWeight.Bold,
                         style = MaterialTheme.typography.titleMedium
