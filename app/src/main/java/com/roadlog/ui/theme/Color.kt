@@ -15,3 +15,8 @@ val AccentRed = Color(0xFFFF4D4D)
 val TextPrimary = Color(0xFFF2F2F2)
 val TextSecondary = Color(0xFF9A9AA2)
 val DividerColor = Color(0xFF2A2A30)
+
+// Speed-zone route coloring (see SpeedZone). NORMAL reuses AccentGreen and
+// RED reuses AccentRed; these two fill the gap between them.
+val SpeedZoneYellow = Color(0xFFFFD60A)
+val SpeedZoneOrange = Color(0xFFFF8C00)

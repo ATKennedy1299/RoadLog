@@ -107,7 +107,7 @@ fun TripReplayScreen(
             }
         } else {
             ReplayMap(
-                points = points.map { LatLng(it.latitude, it.longitude) },
+                points = points.map { RoutePoint(LatLng(it.latitude, it.longitude), it.gpsSpeedMps) },
                 frame = currentFrame,
                 unit = unit,
                 modifier = Modifier
@@ -134,7 +134,7 @@ fun TripReplayScreen(
 
 @Composable
 private fun ReplayMap(
-    points: List<LatLng>,
+    points: List<RoutePoint>,
     frame: ReplayFrame?,
     unit: DistanceUnit,
     modifier: Modifier = Modifier

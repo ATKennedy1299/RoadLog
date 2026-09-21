@@ -51,7 +51,9 @@ fun TripDetailScreen(
     val vehicleProfile by viewModel.vehicleProfile.collectAsStateWithLifecycle()
     val unit by viewModel.unit.collectAsStateWithLifecycle()
     val routePoints by viewModel.routePoints.collectAsStateWithLifecycle()
-    val routeLatLngs = remember(routePoints) { routePoints.map { LatLng(it.latitude, it.longitude) } }
+    val routeMapPoints = remember(routePoints) {
+        routePoints.map { RoutePoint(LatLng(it.latitude, it.longitude), it.gpsSpeedMps) }
+    }
     var showDeleteDialog by remember { mutableStateOf(false) }
 
     Column(
@@ -83,7 +85,7 @@ fun TripDetailScreen(
             )
         } else {
             RouteMapView(
-                points = routeLatLngs,
+                points = routeMapPoints,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(220.dp)
