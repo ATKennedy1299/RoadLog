@@ -26,6 +26,7 @@ import com.roadlog.data.CumulativeStats
 import com.roadlog.data.DistanceUnit
 import com.roadlog.data.PeriodStats
 import com.roadlog.data.Trip
+import com.roadlog.ui.StatsViewModel
 import com.roadlog.ui.theme.AccentGreen
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
