@@ -21,6 +21,7 @@ import androidx.navigation.navArgument
 import com.roadlog.RoadLogApp
 import com.roadlog.service.LocationTrackingService
 import com.roadlog.ui.screens.HomeScreen
+import com.roadlog.ui.screens.StatsScreen
 import com.roadlog.ui.screens.TripDetailScreen
 import com.roadlog.ui.screens.TripReplayScreen
 import com.roadlog.ui.theme.RoadLogTheme
@@ -68,7 +69,21 @@ class MainActivity : ComponentActivity() {
                             viewModel = viewModel,
                             onStartTrip = ::onStartTripClicked,
                             onStopTrip = ::onStopTripClicked,
-                            onTripClick = { tripId -> navController.navigate("trip/$tripId") }
+                            onTripClick = { tripId -> navController.navigate("trip/$tripId") },
+                            onOpenStats = { navController.navigate("stats") }
+                        )
+                    }
+                    composable("stats") {
+                        val app = application as RoadLogApp
+                        val statsViewModel: StatsViewModel = viewModel(
+                            factory = viewModelFactory {
+                                initializer { StatsViewModel(app.repository, app.unitsRepository) }
+                            }
+                        )
+                        StatsScreen(
+                            viewModel = statsViewModel,
+                            onBack = { navController.popBackStack() },
+                            onOpenTrip = { tripId -> navController.navigate("trip/$tripId") }
                         )
                     }
                     composable(

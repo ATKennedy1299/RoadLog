@@ -37,7 +37,8 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     onStartTrip: () -> Unit,
     onStopTrip: () -> Unit,
-    onTripClick: (Long) -> Unit
+    onTripClick: (Long) -> Unit,
+    onOpenStats: () -> Unit
 ) {
     val activeTrip by viewModel.activeTrip.collectAsStateWithLifecycle()
     val history by viewModel.tripHistory.collectAsStateWithLifecycle()
@@ -60,7 +61,15 @@ fun HomeScreen(
                 style = MaterialTheme.typography.labelSmall,
                 color = TextSecondary
             )
-            UnitToggle(unit = unit, onToggle = viewModel::toggleUnit)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "STATS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
+                    modifier = Modifier.clickable(onClick = onOpenStats)
+                )
+                UnitToggle(unit = unit, onToggle = viewModel::toggleUnit)
+            }
         }
         Spacer(Modifier.height(4.dp))
         Text(
