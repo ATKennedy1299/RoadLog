@@ -70,16 +70,20 @@ private const val CAMERA_PADDING_PX = 64
 enum class MapType { STREET, SATELLITE }
 
 /**
- * Renders a route as a polyline framed to fit its bounds, with a built-in
- * street/satellite toggle in the top-right corner. [onMapReady] fires once
- * the underlying map object exists — independent of which style is
- * currently applied — so callers can safely attach map listeners (e.g. a
- * tap handler) without worrying about the style toggle re-triggering them.
+ * Renders a route as a polyline, with a built-in street/satellite toggle in
+ * the top-right corner (satellite by default). By default also frames the
+ * camera to fit the whole route — pass [autoFrameCamera] = false when the
+ * caller wants to own the camera itself (e.g. trip replay's follow-camera).
+ * [onMapReady] fires once the underlying map object exists — independent of
+ * which style is currently applied — so callers can safely attach map
+ * listeners (e.g. a tap handler) without worrying about the style toggle
+ * re-triggering them.
  */
 @Composable
 fun RouteMapView(
     points: List<LatLng>,
     modifier: Modifier = Modifier,
+    autoFrameCamera: Boolean = true,
     onMapReady: (MapLibreMap) -> Unit = {}
 ) {
     if (points.isEmpty()) {
@@ -118,7 +122,7 @@ fun RouteMapView(
     val routeColorArgb = remember { AccentGreen.toArgb() }
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var reportedReady by remember { mutableStateOf(false) }
-    var mapType by remember { mutableStateOf(MapType.STREET) }
+    var mapType by remember { mutableStateOf(MapType.SATELLITE) }
 
     Box(modifier = modifier) {
         AndroidView(
@@ -143,7 +147,9 @@ fun RouteMapView(
             LaunchedEffect(currentMap, mapType, points) {
                 currentMap.setStyle(styleBuilderFor(mapType)) { style ->
                     drawRoute(style, points, routeColorArgb)
-                    frameCamera(currentMap, points)
+                    if (autoFrameCamera) {
+                        frameCamera(currentMap, points)
+                    }
                 }
             }
         }

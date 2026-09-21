@@ -20,6 +20,7 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -42,6 +43,7 @@ import com.roadlog.ui.TripReplayViewModel
 import com.roadlog.ui.theme.AccentGreen
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
+import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.style.layers.CircleLayer
@@ -53,6 +55,7 @@ import kotlin.math.roundToInt
 
 private const val MARKER_SOURCE_ID = "roadlog-replay-marker-source"
 private const val MARKER_LAYER_ID = "roadlog-replay-marker-layer"
+private const val DEFAULT_REPLAY_ZOOM = 16.0
 
 @Composable
 fun TripReplayScreen(
@@ -130,13 +133,52 @@ private fun ReplayMap(
 ) {
     Box(modifier = modifier) {
         var map by remember { mutableStateOf<MapLibreMap?>(null) }
+        var isFollowing by remember { mutableStateOf(true) }
+        var initialCameraSet by remember { mutableStateOf(false) }
+        // Bumped by the camera-move listener so the speed bubble's screen
+        // position (below) recomputes on every pan/zoom, not just when the
+        // playback frame changes — otherwise panning while paused leaves it
+        // stuck over the marker's old position until playback resumes.
+        var cameraRevision by remember { mutableStateOf(0) }
+
         RouteMapView(
             points = points,
             modifier = Modifier.fillMaxSize(),
-            onMapReady = { map = it }
+            autoFrameCamera = false, // replay owns the camera itself (follow mode below)
+            onMapReady = { readyMap ->
+                map = readyMap
+                readyMap.addOnCameraMoveStartedListener { reason ->
+                    if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE) {
+                        isFollowing = false
+                    }
+                }
+                readyMap.addOnCameraMoveListener { cameraRevision++ }
+            }
         )
 
         val currentMap = map
+
+        // One-time: center on the trip's start at a sane street-level zoom
+        // (not the "fit the whole route" zoom used elsewhere) as soon as
+        // both the map and the first frame are ready.
+        if (currentMap != null && frame != null && !initialCameraSet) {
+            LaunchedEffect(currentMap) {
+                currentMap.moveCamera(
+                    CameraUpdateFactory.newLatLngZoom(LatLng(frame.latitude, frame.longitude), DEFAULT_REPLAY_ZOOM)
+                )
+                initialCameraSet = true
+            }
+        }
+
+        // Follow the marker every frame while following is enabled. Only
+        // recenters (keeps whatever zoom the user last set), and stops the
+        // moment a manual gesture is detected above.
+        if (currentMap != null && frame != null && isFollowing && initialCameraSet) {
+            LaunchedEffect(frame, isFollowing) {
+                currentMap.moveCamera(CameraUpdateFactory.newLatLng(LatLng(frame.latitude, frame.longitude)))
+            }
+        }
+
         if (frame != null && currentMap != null) {
             val markerColor = remember { AccentGreen.toArgb() }
             SideEffect {
@@ -146,7 +188,9 @@ private fun ReplayMap(
             val density = LocalDensity.current
             val bubbleOffsetXPx = remember(density) { with(density) { (-40).dp.toPx() } }
             val bubbleOffsetYPx = remember(density) { with(density) { (-68).dp.toPx() } }
-            val screenPoint = currentMap.projection.toScreenLocation(LatLng(frame.latitude, frame.longitude))
+            val screenPoint = remember(frame, cameraRevision, currentMap) {
+                currentMap.projection.toScreenLocation(LatLng(frame.latitude, frame.longitude))
+            }
 
             Box(
                 modifier = Modifier
@@ -173,6 +217,21 @@ private fun ReplayMap(
                     )
                 }
             }
+        }
+
+        if (!isFollowing) {
+            Text(
+                text = "RECENTER",
+                style = MaterialTheme.typography.labelSmall,
+                color = AccentGreen,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(12.dp)
+                    .background(SurfaceRaised.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
+                    .clickable { isFollowing = true }
+                    .padding(horizontal = 12.dp, vertical = 8.dp)
+            )
         }
     }
 }
