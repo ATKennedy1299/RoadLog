@@ -206,10 +206,18 @@ class LocationTrackingService : Service() {
         finalizeTrip()
     }
 
-    /** Must be called while holding tripStateMutex. */
-    private suspend fun finalizeTrip() {
+    /**
+     * Must be called while holding tripStateMutex. [endTimeOverride] lets the
+     * auto-stop-grace path (below) back-date the trip's end to when motion
+     * actually stopped rather than whenever this happens to run — otherwise
+     * the recorded duration would include the whole grace wait (plus however
+     * long Activity Recognition itself took to notice you'd stopped), even
+     * though nothing was still being driven during that time. A manual Stop
+     * Trip tap has no override: "now" is exactly right there.
+     */
+    private suspend fun finalizeTrip(endTimeOverride: Long? = null) {
         val tripId = activeTripId ?: return
-        repository.stopTrip(tripId)
+        repository.stopTrip(tripId, endTimeOverride ?: System.currentTimeMillis())
         activeTripId = null
         isCurrentTripAutoDetected = false
         withContext(Dispatchers.Main) {
@@ -267,8 +275,10 @@ class LocationTrackingService : Service() {
                         // this job right as it was about to run, or the
                         // trip may have already ended some other way.
                         if (activeTripId != null && isCurrentTripAutoDetected) {
+                            val tripId = activeTripId
+                            val lastFixTime = tripId?.let { repository.getLastAcceptedFixTimestamp(it) }
                             stopGraceJob = null
-                            finalizeTrip()
+                            finalizeTrip(endTimeOverride = lastFixTime)
                         }
                     }
                 }

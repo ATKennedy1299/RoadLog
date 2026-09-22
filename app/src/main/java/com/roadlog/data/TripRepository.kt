@@ -53,9 +53,13 @@ class TripRepository(private val db: AppDatabase) {
         return trip.copy(id = id)
     }
 
-    suspend fun stopTrip(tripId: Long) {
-        db.tripDao().completeTrip(tripId, System.currentTimeMillis())
+    suspend fun stopTrip(tripId: Long, endTimeEpochMs: Long = System.currentTimeMillis()) {
+        db.tripDao().completeTrip(tripId, endTimeEpochMs)
     }
+
+    /** Used to back-date an auto-stopped trip's end time to when motion actually stopped. */
+    suspend fun getLastAcceptedFixTimestamp(tripId: Long): Long? =
+        db.locationPointDao().getLastAcceptedPoint(tripId)?.timestampEpochMs
 
     /**
      * Runs an incoming raw GPS fix through GpsFilter, persists it either way
