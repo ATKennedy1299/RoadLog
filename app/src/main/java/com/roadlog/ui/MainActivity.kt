@@ -9,21 +9,29 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.roadlog.RoadLogApp
 import com.roadlog.data.DefaultVehicleProfile
 import com.roadlog.service.LocationTrackingService
 import com.roadlog.service.RideDetection
+import com.roadlog.ui.screens.BottomNavDestination
 import com.roadlog.ui.screens.GarageScreen
 import com.roadlog.ui.screens.HomeScreen
+import com.roadlog.ui.screens.RoadLogBottomNav
 import com.roadlog.ui.screens.StatsScreen
 import com.roadlog.ui.screens.TripDetailScreen
 import com.roadlog.ui.screens.TripReplayScreen
@@ -103,15 +111,34 @@ class MainActivity : ComponentActivity() {
         setContent {
             RoadLogTheme {
                 val navController = rememberNavController()
-                NavHost(navController = navController, startDestination = "home") {
+                val backStackEntry by navController.currentBackStackEntryAsState()
+                val currentRoute = backStackEntry?.destination?.route
+                val showBottomNav = BottomNavDestination.entries.any { it.route == currentRoute }
+
+                Scaffold(
+                    bottomBar = {
+                        if (showBottomNav) {
+                            RoadLogBottomNav(currentRoute = currentRoute) { route ->
+                                navController.navigate(route) {
+                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                    launchSingleTop = true
+                                    restoreState = true
+                                }
+                            }
+                        }
+                    }
+                ) { innerPadding ->
+                NavHost(
+                    navController = navController,
+                    startDestination = "home",
+                    modifier = Modifier.padding(innerPadding)
+                ) {
                     composable("home") {
                         HomeScreen(
                             viewModel = viewModel,
                             onStartTrip = ::onStartTripClicked,
                             onStopTrip = ::onStopTripClicked,
                             onTripClick = { tripId -> navController.navigate("trip/$tripId") },
-                            onOpenStats = { navController.navigate("stats") },
-                            onOpenGarage = { navController.navigate("garage") },
                             onToggleAutoDetect = ::onToggleAutoDetectClicked
                         )
                     }
@@ -124,7 +151,6 @@ class MainActivity : ComponentActivity() {
                         )
                         GarageScreen(
                             viewModel = garageViewModel,
-                            onBack = { navController.popBackStack() },
                             onOpenVehicle = { vehicleId -> navController.navigate("vehicle/$vehicleId") },
                             onAddVehicle = { navController.navigate("vehicle-edit/0") }
                         )
@@ -179,7 +205,6 @@ class MainActivity : ComponentActivity() {
                         )
                         StatsScreen(
                             viewModel = statsViewModel,
-                            onBack = { navController.popBackStack() },
                             onOpenTrip = { tripId -> navController.navigate("trip/$tripId") }
                         )
                     }
@@ -218,6 +243,7 @@ class MainActivity : ComponentActivity() {
                             onBack = { navController.popBackStack() }
                         )
                     }
+                }
                 }
             }
         }
