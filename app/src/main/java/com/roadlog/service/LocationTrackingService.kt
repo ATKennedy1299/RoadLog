@@ -171,16 +171,31 @@ class LocationTrackingService : Service() {
         return START_STICKY
     }
 
-    private suspend fun onStartTripRequested() = tripStateMutex.withLock {
-        if (activeTripId != null) return@withLock // already tracking
-        val trip = repository.startTrip()
-        activeTripId = trip.id
-        isCurrentTripAutoDetected = false
-        currentTripDistance = 0.0
-        currentTripMaxSpeed = 0.0
-        withContext(Dispatchers.Main) {
-            startForeground(NOTIFICATION_ID, buildNotification(trip))
-            beginLocationUpdates(highAccuracy = true)
+    private suspend fun onStartTripRequested() = ingestionMutex.withLock {
+        // A manual start always wins over any in-progress ride-detection
+        // check. Without this, a stale candidate (with its 3-minute
+        // timeout job still scheduled) would later fire mid-recording and
+        // call stopSelf(), silently killing this trip. Acquiring
+        // ingestionMutex before tripStateMutex here matches the ordering
+        // used everywhere candidate state and trip state are both touched,
+        // so this can't deadlock against promoteCandidateLocked().
+        candidateActive = false
+        candidateFirstQualifyingFixMs = null
+        candidateBuffer.clear()
+        candidateTimeoutJob?.cancel()
+        candidateTimeoutJob = null
+
+        tripStateMutex.withLock {
+            if (activeTripId != null) return@withLock // already tracking
+            val trip = repository.startTrip()
+            activeTripId = trip.id
+            isCurrentTripAutoDetected = false
+            currentTripDistance = 0.0
+            currentTripMaxSpeed = 0.0
+            withContext(Dispatchers.Main) {
+                startForeground(NOTIFICATION_ID, buildNotification(trip))
+                beginLocationUpdates(highAccuracy = true)
+            }
         }
     }
 
