@@ -109,10 +109,15 @@ dependencies {
     // has known IPC-related reliability issues on recent Android versions.
     // Pinned to 1.3.0 rather than latest: 1.6.0's AAR metadata requires
     // compileSdk 35 + AGP 8.6.0, both bigger, riskier bumps than this
-    // sign-in fix calls for — 1.3.0 still only needs compileSdk 34.
+    // sign-in fix calls for — 1.3.0 still only needs compileSdk 34. googleid
+    // is pinned down to 1.1.1 to match: 1.2.1 transitively pulls in
+    // credentials 1.6.0+ itself, which silently overrode the explicit
+    // 1.3.0 pin above (Gradle resolves conflicting transitive versions to
+    // the highest one requested by default) — this is what actually
+    // caused the previous attempt to still fail on 1.6.0's requirements.
     implementation("androidx.credentials:credentials:1.3.0")
     implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
-    implementation("com.google.android.libraries.identity.googleid:googleid:1.2.1")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
