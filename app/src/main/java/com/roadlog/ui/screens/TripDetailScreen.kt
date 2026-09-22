@@ -54,12 +54,14 @@ fun TripDetailScreen(
     val trip by viewModel.trip.collectAsStateWithLifecycle()
     val vehicleProfile by viewModel.vehicleProfile.collectAsStateWithLifecycle()
     val vehicles by viewModel.vehicles.collectAsStateWithLifecycle()
+    val suggestedVehicle by viewModel.suggestedVehicle.collectAsStateWithLifecycle()
     val unit by viewModel.unit.collectAsStateWithLifecycle()
     val routePoints by viewModel.routePoints.collectAsStateWithLifecycle()
     val routeMapPoints = remember(routePoints) {
         routePoints.map { RoutePoint(LatLng(it.latitude, it.longitude), it.gpsSpeedMps) }
     }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var suggestionDismissed by remember(trip?.id) { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -116,6 +118,19 @@ fun TripDetailScreen(
                 unit = unit,
                 onChangeVehicle = viewModel::changeVehicle
             )
+
+            val suggestion = suggestedVehicle
+            if (suggestion != null && !suggestionDismissed) {
+                Spacer(Modifier.height(16.dp))
+                VehicleSuggestionBanner(
+                    vehicleName = suggestion.name,
+                    onAccept = {
+                        viewModel.changeVehicle(suggestion.id)
+                        suggestionDismissed = true
+                    },
+                    onDismiss = { suggestionDismissed = true }
+                )
+            }
 
             if (currentTrip.status != TripStatus.ACTIVE) {
                 Spacer(Modifier.height(24.dp))
@@ -194,6 +209,44 @@ private fun TripStats(
                 onSelect = onChangeVehicle
             )
             StatText(label = "GPS POINTS", value = trip.pointCount.toString())
+        }
+    }
+}
+
+@Composable
+private fun VehicleSuggestionBanner(vehicleName: String, onAccept: () -> Unit, onDismiss: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceRaised, RoundedCornerShape(16.dp))
+            .padding(16.dp)
+    ) {
+        Text(
+            text = "Looks like this might be your $vehicleName",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "Based on how the phone leaned through turns during this trip — still experimental.",
+            style = MaterialTheme.typography.labelSmall,
+            color = TextSecondary
+        )
+        Spacer(Modifier.height(12.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(20.dp)) {
+            Text(
+                text = "USE THIS",
+                style = MaterialTheme.typography.labelSmall,
+                color = AccentGreen,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable(onClick = onAccept)
+            )
+            Text(
+                text = "DISMISS",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary,
+                modifier = Modifier.clickable(onClick = onDismiss)
+            )
         }
     }
 }

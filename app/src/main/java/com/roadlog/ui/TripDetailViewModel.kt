@@ -6,12 +6,14 @@ import com.roadlog.data.DistanceUnit
 import com.roadlog.data.LocationPoint
 import com.roadlog.data.Trip
 import com.roadlog.data.TripRepository
+import com.roadlog.data.TripStatus
 import com.roadlog.data.UnitsRepository
 import com.roadlog.data.VehicleProfile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -31,6 +33,22 @@ class TripDetailViewModel(
 
     private val _vehicleProfile = MutableStateFlow<VehicleProfile?>(null)
     val vehicleProfile: StateFlow<VehicleProfile?> = _vehicleProfile.asStateFlow()
+
+    /**
+     * A vehicle to suggest re-categorizing this trip as, based on
+     * RideMotionClassifier's car/motorcycle guess — only offered when
+     * exactly one vehicle in the garage matches the detected type (no
+     * attempt to disambiguate between two motorcycles or two cars, which
+     * this signal can't do), it isn't already the trip's assigned vehicle,
+     * and the trip is done recording. Never applied automatically — see
+     * changeVehicle(), which the UI calls only once the user accepts it.
+     */
+    val suggestedVehicle: StateFlow<VehicleProfile?> = combine(trip, vehicles) { currentTrip, allVehicles ->
+        if (currentTrip == null || currentTrip.status != TripStatus.COMPLETED) return@combine null
+        val detectedType = currentTrip.detectedVehicleType ?: return@combine null
+        val onlyMatch = allVehicles.filter { it.type == detectedType }.singleOrNull() ?: return@combine null
+        onlyMatch.takeIf { it.id != currentTrip.vehicleProfileId }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
     // Loaded once: a completed trip's points never change, so this doesn't
     // need to be a reactive Flow like the fields above.

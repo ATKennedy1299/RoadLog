@@ -3,6 +3,7 @@ package com.roadlog.service
 import android.app.*
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.hardware.SensorManager
 import android.location.Location
 import android.os.Build
 import android.os.IBinder
@@ -103,6 +104,21 @@ class LocationTrackingService : Service() {
     private val repository by lazy { (application as RoadLogApp).repository }
     private val unitsRepository by lazy { (application as RoadLogApp).unitsRepository }
 
+    // Suggestion-only car/motorcycle guess for the trip currently recording
+    // (see RideMotionClassifier's own doc comment) — never anything more
+    // than an input to a UI suggestion the user can accept or ignore.
+    private val sensorManager by lazy { getSystemService(SensorManager::class.java) }
+    private val rideMotionClassifier = RideMotionClassifier()
+
+    private fun registerMotionSensor() {
+        val sensor = rideMotionClassifier.defaultSensor(sensorManager) ?: return
+        sensorManager.registerListener(rideMotionClassifier, sensor, SensorManager.SENSOR_DELAY_GAME)
+    }
+
+    private fun unregisterMotionSensor() {
+        sensorManager.unregisterListener(rideMotionClassifier)
+    }
+
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
             if (result.locations.isEmpty()) return
@@ -138,6 +154,7 @@ class LocationTrackingService : Service() {
                     withContext(Dispatchers.Main) {
                         startForeground(NOTIFICATION_ID, buildNotification(trip))
                         beginLocationUpdates(highAccuracy = true)
+                        registerMotionSensor()
                     }
                 }
             }
@@ -203,6 +220,7 @@ class LocationTrackingService : Service() {
             withContext(Dispatchers.Main) {
                 startForeground(NOTIFICATION_ID, buildNotification(trip))
                 beginLocationUpdates(highAccuracy = true)
+                registerMotionSensor()
             }
         }
     }
@@ -225,10 +243,13 @@ class LocationTrackingService : Service() {
      */
     private suspend fun finalizeTrip(endTimeOverride: Long? = null) {
         val tripId = activeTripId ?: return
-        repository.stopTrip(tripId, endTimeOverride ?: System.currentTimeMillis())
+        val detectedVehicleType = rideMotionClassifier.finish()
+        repository.stopTrip(tripId, endTimeOverride ?: System.currentTimeMillis(), detectedVehicleType)
         activeTripId = null
         isCurrentTripAutoDetected = false
+        rideMotionClassifier.reset()
         withContext(Dispatchers.Main) {
+            unregisterMotionSensor()
             fusedLocationClient.removeLocationUpdates(locationCallback)
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
@@ -377,6 +398,7 @@ class LocationTrackingService : Service() {
 
         withContext(Dispatchers.Main) {
             beginLocationUpdates(highAccuracy = true)
+            registerMotionSensor()
         }
     }
 
@@ -396,6 +418,13 @@ class LocationTrackingService : Service() {
 
     private suspend fun ingestLocations(tripId: Long, locations: List<Location>) {
         for (location in locations) {
+            if (location.hasBearing()) {
+                rideMotionClassifier.onLocationFix(
+                    bearingDeg = location.bearing,
+                    speedMps = if (location.hasSpeed()) location.speed else null,
+                    timestampMs = location.time
+                )
+            }
             repository.ingestFix(
                 tripId = tripId,
                 timestampEpochMs = location.time,
@@ -489,6 +518,7 @@ class LocationTrackingService : Service() {
 
     override fun onDestroy() {
         fusedLocationClient.removeLocationUpdates(locationCallback)
+        unregisterMotionSensor()
         serviceScope.cancel()
         super.onDestroy()
     }
