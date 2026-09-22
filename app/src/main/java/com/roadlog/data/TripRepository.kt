@@ -66,9 +66,10 @@ class TripRepository(private val db: AppDatabase) {
     suspend fun stopTrip(
         tripId: Long,
         endTimeEpochMs: Long = System.currentTimeMillis(),
-        detectedVehicleType: VehicleType? = null
+        detectedVehicleType: VehicleType? = null,
+        motionDebugInfo: String? = null
     ) {
-        db.tripDao().completeTrip(tripId, endTimeEpochMs, detectedVehicleType)
+        db.tripDao().completeTrip(tripId, endTimeEpochMs, detectedVehicleType, motionDebugInfo)
     }
 
     /** Recategorizes a trip after the fact — e.g. auto-detect or the picker guessed wrong. */
@@ -163,7 +164,9 @@ class TripRepository(private val db: AppDatabase) {
                 ?: trip.startTimeEpochMs
         val ageMs = now - lastActivityTimestamp
         if (ageMs > STALE_TRIP_THRESHOLD_MS) {
-            db.tripDao().completeTrip(trip.id, lastActivityTimestamp, detectedVehicleType = null)
+            db.tripDao().completeTrip(
+                trip.id, lastActivityTimestamp, detectedVehicleType = null, motionDebugInfo = null
+            )
             return null
         }
         return trip

@@ -132,6 +132,15 @@ fun TripDetailScreen(
                 )
             }
 
+            if (currentTrip.status != TripStatus.ACTIVE && currentTrip.motionDebugInfo != null) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "DEBUG: ${currentTrip.motionDebugInfo}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary
+                )
+            }
+
             if (currentTrip.status != TripStatus.ACTIVE) {
                 Spacer(Modifier.height(24.dp))
                 Button(

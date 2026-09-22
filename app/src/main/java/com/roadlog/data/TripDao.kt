@@ -49,11 +49,19 @@ interface TripDao {
     @Query(
         """
         UPDATE trips
-        SET status = 'COMPLETED', endTimeEpochMs = :endTime, detectedVehicleType = :detectedVehicleType
+        SET status = 'COMPLETED',
+            endTimeEpochMs = :endTime,
+            detectedVehicleType = :detectedVehicleType,
+            motionDebugInfo = :motionDebugInfo
         WHERE id = :tripId
         """
     )
-    suspend fun completeTrip(tripId: Long, endTime: Long, detectedVehicleType: VehicleType?)
+    suspend fun completeTrip(
+        tripId: Long,
+        endTime: Long,
+        detectedVehicleType: VehicleType?,
+        motionDebugInfo: String?
+    )
 
     @Query("UPDATE trips SET vehicleProfileId = :vehicleProfileId WHERE id = :tripId")
     suspend fun updateVehicleProfileId(tripId: Long, vehicleProfileId: Long)
