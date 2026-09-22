@@ -37,12 +37,14 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.roadlog.data.DistanceUnit
+import com.roadlog.data.LocationPoint
 import com.roadlog.data.SpeedSource
 import com.roadlog.ui.ReplayFrame
 import com.roadlog.ui.TripReplayViewModel
 import com.roadlog.ui.theme.AccentGreen
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
+import com.roadlog.util.DistanceUtils
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -107,9 +109,10 @@ fun TripReplayScreen(
             }
         } else {
             ReplayMap(
-                points = points.map { RoutePoint(LatLng(it.latitude, it.longitude), it.gpsSpeedMps) },
+                locationPoints = points,
                 frame = currentFrame,
                 unit = unit,
+                onSeek = viewModel::seekTo,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -134,11 +137,16 @@ fun TripReplayScreen(
 
 @Composable
 private fun ReplayMap(
-    points: List<RoutePoint>,
+    locationPoints: List<LocationPoint>,
     frame: ReplayFrame?,
     unit: DistanceUnit,
+    onSeek: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val routePoints = remember(locationPoints) {
+        locationPoints.map { RoutePoint(LatLng(it.latitude, it.longitude), it.gpsSpeedMps) }
+    }
+
     Box(modifier = modifier) {
         var map by remember { mutableStateOf<MapLibreMap?>(null) }
         var isFollowing by remember { mutableStateOf(true) }
@@ -150,7 +158,7 @@ private fun ReplayMap(
         var cameraRevision by remember { mutableStateOf(0) }
 
         RouteMapView(
-            points = points,
+            points = routePoints,
             modifier = Modifier.fillMaxSize(),
             autoFrameCamera = false, // replay owns the camera itself (follow mode below)
             onMapReady = { readyMap ->
@@ -161,6 +169,10 @@ private fun ReplayMap(
                     }
                 }
                 readyMap.addOnCameraMoveListener { cameraRevision++ }
+                readyMap.addOnMapClickListener { tapped ->
+                    seekToNearestPoint(locationPoints, tapped, onSeek)
+                    true
+                }
             }
         )
 
@@ -259,6 +271,23 @@ private fun ReplayMap(
 
 private fun SpeedSource.displayLabel(): String = when (this) {
     SpeedSource.GPS_RAW -> "GPS"
+}
+
+/**
+ * Maps a map tap to the closest recorded point (by geographic distance,
+ * not screen distance — fine here since candidates are only ever a single
+ * trip's own route, never far enough apart for that to matter) and seeks
+ * the replay to that point's position along the trip's timeline.
+ */
+private fun seekToNearestPoint(points: List<LocationPoint>, tapped: LatLng, onSeek: (Float) -> Unit) {
+    if (points.size < 2) return
+    val totalDurationMs = points.last().timestampEpochMs - points.first().timestampEpochMs
+    if (totalDurationMs <= 0) return
+    val nearest = points.minByOrNull {
+        DistanceUtils.haversineMeters(it.latitude, it.longitude, tapped.latitude, tapped.longitude)
+    } ?: return
+    val fraction = (nearest.timestampEpochMs - points.first().timestampEpochMs).toFloat() / totalDurationMs.toFloat()
+    onSeek(fraction)
 }
 
 private fun upsertMarker(map: MapLibreMap, position: LatLng, colorArgb: Int) {
