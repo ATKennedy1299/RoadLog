@@ -109,9 +109,12 @@ class LocationTrackingService : Service() {
     // than an input to a UI suggestion the user can accept or ignore.
     private val sensorManager by lazy { getSystemService(SensorManager::class.java) }
     private val rideMotionClassifier = RideMotionClassifier()
+    @Volatile private var motionSensorFound = false
 
     private fun registerMotionSensor() {
-        val sensor = rideMotionClassifier.defaultSensor(sensorManager) ?: return
+        val sensor = rideMotionClassifier.defaultSensor(sensorManager)
+        motionSensorFound = sensor != null
+        if (sensor == null) return
         sensorManager.registerListener(rideMotionClassifier, sensor, SensorManager.SENSOR_DELAY_GAME)
     }
 
@@ -244,7 +247,13 @@ class LocationTrackingService : Service() {
     private suspend fun finalizeTrip(endTimeOverride: Long? = null) {
         val tripId = activeTripId ?: return
         val detectedVehicleType = rideMotionClassifier.finish()
-        repository.stopTrip(tripId, endTimeOverride ?: System.currentTimeMillis(), detectedVehicleType)
+        val motionDebugInfo = rideMotionClassifier.debugSummary(motionSensorFound)
+        repository.stopTrip(
+            tripId,
+            endTimeOverride ?: System.currentTimeMillis(),
+            detectedVehicleType,
+            motionDebugInfo
+        )
         activeTripId = null
         isCurrentTripAutoDetected = false
         rideMotionClassifier.reset()

@@ -26,5 +26,9 @@ data class Trip(
     // saw enough clear turns to venture a guess, or the device lacks the
     // needed sensor. Purely a suggestion surfaced in the UI, never written
     // back into vehicleProfileId automatically.
-    val detectedVehicleType: VehicleType? = null
+    val detectedVehicleType: VehicleType? = null,
+    // Temporary diagnostic instrumentation for RideMotionClassifier, shown on
+    // Trip Detail behind a "DEBUG" label — remove once its thresholds are
+    // validated against real rides and it's trusted to run silently.
+    val motionDebugInfo: String? = null
 )

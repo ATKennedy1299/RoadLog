@@ -75,6 +75,12 @@ class RideMotionClassifier : SensorEventListener {
 
     private var motorcycleAgreeCount = 0
     private var carAgreeCount = 0
+    // Real turns whose roll fell in neither bucket (wrong-signed, or between
+    // CAR_ROLL_MAX_DEG and MOTORCYCLE_LEAN_THRESHOLD_DEG) — not otherwise
+    // visible anywhere, so debugSummary() surfaces it too: a high count here
+    // relative to mc/car means the thresholds are the thing to retune, not a
+    // sign-convention bug.
+    private var ambiguousCount = 0
 
     /** Convenience for the service: null if this device has no usable sensor. */
     fun defaultSensor(sensorManager: SensorManager): Sensor? =
@@ -133,6 +139,7 @@ class RideMotionClassifier : SensorEventListener {
             magnitude <= CAR_ROLL_MAX_DEG -> carAgreeCount++
             // else: ambiguous (wrong-signed roll, or in between) — ignored
             // rather than forced into either bucket.
+            else -> ambiguousCount++
         }
     }
 
@@ -166,5 +173,20 @@ class RideMotionClassifier : SensorEventListener {
         lastBearingTimeMs = null
         motorcycleAgreeCount = 0
         carAgreeCount = 0
+        ambiguousCount = 0
+    }
+
+    /**
+     * Temporary diagnostic instrumentation, surfaced on Trip Detail behind a
+     * "DEBUG" label — remove once the classifier's thresholds are validated
+     * against real rides. [sensorFound] comes from the caller (it knows
+     * whether the device even has the sensor; this class only knows whether
+     * samples arrived from one).
+     */
+    @Synchronized
+    fun debugSummary(sensorFound: Boolean): String {
+        val baseline = if (baselineRollDeg != null) "yes" else "no"
+        return "sensor=$sensorFound baseline=$baseline mc=$motorcycleAgreeCount " +
+            "car=$carAgreeCount ambiguous=$ambiguousCount"
     }
 }
