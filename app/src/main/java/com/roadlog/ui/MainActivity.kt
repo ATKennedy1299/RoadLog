@@ -57,6 +57,32 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { /* no-op: notification just won't show if denied */ }
 
+    // Auto-detect's own permission chain: fine location (it's meaningless
+    // without any location access) -> background location (required for a
+    // background-started foreground service to actually get GPS fixes once
+    // the app has no visible Activity — "while using the app" alone isn't
+    // enough) -> activity recognition (the STILL-transition trigger).
+    // Deliberately separate from foregroundLocationPermissionLauncher below,
+    // which always ends by starting a manual trip — reusing it here would
+    // start a trip just from toggling this setting on.
+    private val autoDetectFineLocationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants[Manifest.permission.ACCESS_FINE_LOCATION] == true) {
+            requestBackgroundLocationForAutoDetect()
+        }
+        // else: leave the setting off.
+    }
+
+    private val autoDetectBackgroundLocationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) {
+        // Proceed regardless of grant — without it, detection still works
+        // while the app happens to be in the foreground, just not while
+        // fully closed. Better than blocking the feature entirely.
+        requestActivityRecognitionForAutoDetect()
+    }
+
     private val activityRecognitionPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -167,11 +193,34 @@ class MainActivity : ComponentActivity() {
 
     private fun onToggleAutoDetectClicked() {
         val app = application as RoadLogApp
+        if (app.rideDetectionSettings.enabled.value) {
+            RideDetection.unregister(this)
+            app.rideDetectionSettings.setEnabled(false)
+            return
+        }
+        if (!hasFineLocationPermission()) {
+            autoDetectFineLocationPermissionLauncher.launch(
+                arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)
+            )
+        } else {
+            requestBackgroundLocationForAutoDetect()
+        }
+    }
+
+    private fun requestBackgroundLocationForAutoDetect() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+            ContextCompat.checkSelfPermission(
+                this, Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            autoDetectBackgroundLocationPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        } else {
+            requestActivityRecognitionForAutoDetect()
+        }
+    }
+
+    private fun requestActivityRecognitionForAutoDetect() {
         when {
-            app.rideDetectionSettings.enabled.value -> {
-                RideDetection.unregister(this)
-                app.rideDetectionSettings.setEnabled(false)
-            }
             RideDetection.hasPermission(this) -> enableAutoDetect()
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
                 activityRecognitionPermissionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
