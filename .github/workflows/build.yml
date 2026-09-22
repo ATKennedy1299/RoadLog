@@ -37,14 +37,25 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # GitHub Actions runs each step's script with `bash -e`, so a
-          # grep with zero matches (exit code 1) would abort this whole
-          # step before curl ever ran, silently posting nothing — hence
-          # `|| true`. That's precisely what happened when a build failure
-          # didn't happen to contain "error:" or an "e: " compiler line
-          # (e.g. a Gradle plugin misconfiguration rather than a Kotlin
-          # compile error).
-          { grep -E "^e: |error:" build-output.log || true; echo "---tail---"; tail -n 100 build-output.log; } > failure-excerpt.txt
+          # GitHub Actions runs each step's script with `bash -e`, so any
+          # command here that can exit non-zero (grep with zero matches,
+          # in particular) needs `|| true`, or this whole step aborts
+          # before curl ever posts anything.
+          #
+          # Gradle's own "FAILURE: Build failed..." banner + its "What
+          # went wrong" section is the most reliable, failure-type-agnostic
+          # summary there is — it's what this leads with. The compiler-error
+          # grep and raw tail are kept as a fallback/supplement, since a
+          # plain tail alone can land mid-stack-trace with the actual
+          # message scrolled out of view (as happened here).
+          {
+            echo "=== Gradle failure summary ==="
+            grep -A 40 "FAILURE: Build failed" build-output.log || echo "(no FAILURE banner found)"
+            echo "=== Compiler error lines ==="
+            grep -E "^e: |error:" build-output.log || echo "(none)"
+            echo "=== tail ==="
+            tail -n 60 build-output.log
+          } > failure-excerpt.txt
           BODY=$(jq -Rs '"### Build failed: " + "${{ github.workflow }}" + "\n```\n" + . + "\n```"' failure-excerpt.txt)
           curl -sS -X POST \
             -H "Authorization: token $GITHUB_TOKEN" \
