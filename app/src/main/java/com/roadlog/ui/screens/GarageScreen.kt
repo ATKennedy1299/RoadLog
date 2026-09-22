@@ -45,7 +45,6 @@ import com.roadlog.ui.theme.TextSecondary
 @Composable
 fun GarageScreen(
     viewModel: GarageViewModel,
-    onBack: () -> Unit,
     onOpenVehicle: (Long) -> Unit,
     onAddVehicle: () -> Unit
 ) {
@@ -57,13 +56,6 @@ fun GarageScreen(
             .background(MaterialTheme.colorScheme.background)
             .padding(20.dp)
     ) {
-        Text(
-            text = "‹ BACK",
-            style = MaterialTheme.typography.labelSmall,
-            color = TextSecondary,
-            modifier = Modifier.clickable(onClick = onBack)
-        )
-        Spacer(Modifier.height(4.dp))
         Text(
             text = "GARAGE",
             style = MaterialTheme.typography.headlineLarge,

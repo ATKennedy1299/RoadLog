@@ -23,6 +23,7 @@ import com.roadlog.data.DistanceUnit
 import com.roadlog.data.Trip
 import com.roadlog.data.TripStatus
 import com.roadlog.data.VehicleProfile
+import com.roadlog.data.VehicleType
 import com.roadlog.ui.HomeViewModel
 import com.roadlog.ui.theme.AccentAmber
 import com.roadlog.ui.theme.AccentGreen
@@ -39,8 +40,6 @@ fun HomeScreen(
     onStartTrip: () -> Unit,
     onStopTrip: () -> Unit,
     onTripClick: (Long) -> Unit,
-    onOpenStats: () -> Unit,
-    onOpenGarage: () -> Unit,
     onToggleAutoDetect: () -> Unit
 ) {
     val activeTrip by viewModel.activeTrip.collectAsStateWithLifecycle()
@@ -68,18 +67,6 @@ fun HomeScreen(
                 color = TextSecondary
             )
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(
-                    text = "STATS",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
-                    modifier = Modifier.clickable(onClick = onOpenStats)
-                )
-                Text(
-                    text = "GARAGE",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = TextSecondary,
-                    modifier = Modifier.clickable(onClick = onOpenGarage)
-                )
                 AutoDetectToggle(enabled = autoDetectEnabled, onToggle = onToggleAutoDetect)
                 UnitToggle(unit = unit, onToggle = viewModel::toggleUnit)
             }
@@ -92,8 +79,8 @@ fun HomeScreen(
         )
 
         if (activeTrip == null) {
-            Spacer(Modifier.height(12.dp))
-            VehicleSelector(
+            Spacer(Modifier.height(16.dp))
+            GarageHeroCard(
                 vehicles = vehicles,
                 selectedVehicleId = selectedVehicleId,
                 onSelect = viewModel::selectVehicle
@@ -244,7 +231,7 @@ private fun AutoDetectToggle(enabled: Boolean, onToggle: () -> Unit) {
 }
 
 @Composable
-private fun VehicleSelector(
+private fun GarageHeroCard(
     vehicles: List<VehicleProfile>,
     selectedVehicleId: Long,
     onSelect: (Long) -> Unit
@@ -256,19 +243,31 @@ private fun VehicleSelector(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .background(SurfaceRaised, RoundedCornerShape(12.dp))
+                .background(SurfaceRaised, RoundedCornerShape(16.dp))
                 .clickable(enabled = vehicles.size > 1) { expanded = true }
-                .padding(horizontal = 16.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(
-                text = "VEHICLE: ${selected?.name ?: "None"}",
-                style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary
+            VehicleThumbnail(
+                photoPath = selected?.photoPath,
+                colorHex = selected?.colorHex ?: "#00E5A0",
+                size = 52.dp
             )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = "YOUR GARAGE", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+                Text(
+                    text = selected?.name ?: "No vehicle yet",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = Color.White
+                )
+                if (selected != null) {
+                    val subtitle = if (selected.type == VehicleType.MOTORCYCLE) "Motorcycle" else "Car"
+                    Text(text = subtitle, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+                }
+            }
             if (vehicles.size > 1) {
-                Text("▾", color = TextSecondary, style = MaterialTheme.typography.labelSmall)
+                Text("▾", color = TextSecondary, style = MaterialTheme.typography.titleMedium)
             }
         }
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {

@@ -37,7 +37,6 @@ import java.util.Locale
 @Composable
 fun StatsScreen(
     viewModel: StatsViewModel,
-    onBack: () -> Unit,
     onOpenTrip: (Long) -> Unit
 ) {
     val stats by viewModel.stats.collectAsStateWithLifecycle()
@@ -49,13 +48,6 @@ fun StatsScreen(
             .background(MaterialTheme.colorScheme.background)
     ) {
         Column(modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)) {
-            Text(
-                text = "‹ BACK",
-                style = MaterialTheme.typography.labelSmall,
-                color = TextSecondary,
-                modifier = Modifier.clickable(onClick = onBack)
-            )
-            Spacer(Modifier.height(4.dp))
             Text(
                 text = "STATS",
                 style = MaterialTheme.typography.headlineLarge,
