@@ -39,6 +39,7 @@ fun HomeScreen(
     onStopTrip: () -> Unit,
     onTripClick: (Long) -> Unit,
     onOpenStats: () -> Unit,
+    onOpenFriends: () -> Unit,
     onToggleAutoDetect: () -> Unit
 ) {
     val activeTrip by viewModel.activeTrip.collectAsStateWithLifecycle()
@@ -69,6 +70,12 @@ fun HomeScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = TextSecondary,
                     modifier = Modifier.clickable(onClick = onOpenStats)
+                )
+                Text(
+                    text = "FRIENDS",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
+                    modifier = Modifier.clickable(onClick = onOpenFriends)
                 )
                 AutoDetectToggle(enabled = autoDetectEnabled, onToggle = onToggleAutoDetect)
                 UnitToggle(unit = unit, onToggle = viewModel::toggleUnit)

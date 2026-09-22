@@ -71,6 +71,10 @@ class LocationTrackingService : Service() {
         // doesn't end it. Manual trips are never subject to this — only the
         // user's own Stop button ends those.
         private val AUTO_STOP_GRACE_MS = TimeUnit.MINUTES.toMillis(5)
+        // Live friend-location sharing cadence — deliberately much coarser
+        // than the 1-2s GPS fix rate, since this is "roughly where you are
+        // right now" for a friend, not a precise recorded route.
+        private val LIVE_LOCATION_PUSH_INTERVAL_MS = TimeUnit.SECONDS.toMillis(10)
 
         private const val TAG = "LocationTrackingService"
     }
@@ -100,6 +104,12 @@ class LocationTrackingService : Service() {
 
     private val repository by lazy { (application as RoadLogApp).repository }
     private val unitsRepository by lazy { (application as RoadLogApp).unitsRepository }
+    private val friendsRepository by lazy { (application as RoadLogApp).friendsRepository }
+
+    // Throttles live-location pushes to friends independently of GPS fix
+    // rate (every 1-2s) — no-ops entirely if signed out, since
+    // FriendsRepository.pushLiveLocation() requires a uid.
+    @Volatile private var lastLiveLocationPushMs = 0L
 
     private val locationCallback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -309,6 +319,24 @@ class LocationTrackingService : Service() {
                 stopGraceJob = null
             }
         }
+        maybePushLiveLocation(locations.last())
+    }
+
+    /**
+     * Best-effort, throttled — this must never affect trip recording, so it
+     * fires-and-forgets rather than awaiting the write, and silently no-ops
+     * if signed out (see FriendsRepository.pushLiveLocation).
+     */
+    private fun maybePushLiveLocation(location: Location) {
+        val now = System.currentTimeMillis()
+        if (now - lastLiveLocationPushMs < LIVE_LOCATION_PUSH_INTERVAL_MS) return
+        lastLiveLocationPushMs = now
+        friendsRepository.pushLiveLocation(
+            latitude = location.latitude,
+            longitude = location.longitude,
+            speedMps = if (location.hasSpeed()) location.speed.toDouble() else 0.0,
+            timestampEpochMs = location.time
+        )
     }
 
     /** Must be called while holding ingestionMutex. */

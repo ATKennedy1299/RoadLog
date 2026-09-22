@@ -9,7 +9,10 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
@@ -21,7 +24,9 @@ import androidx.navigation.navArgument
 import com.roadlog.RoadLogApp
 import com.roadlog.service.LocationTrackingService
 import com.roadlog.service.RideDetection
+import com.roadlog.ui.screens.FriendsScreen
 import com.roadlog.ui.screens.HomeScreen
+import com.roadlog.ui.screens.SignInScreen
 import com.roadlog.ui.screens.StatsScreen
 import com.roadlog.ui.screens.TripDetailScreen
 import com.roadlog.ui.screens.TripReplayScreen
@@ -107,6 +112,7 @@ class MainActivity : ComponentActivity() {
                             onStopTrip = ::onStopTripClicked,
                             onTripClick = { tripId -> navController.navigate("trip/$tripId") },
                             onOpenStats = { navController.navigate("stats") },
+                            onOpenFriends = { navController.navigate("friends") },
                             onToggleAutoDetect = ::onToggleAutoDetectClicked
                         )
                     }
@@ -157,6 +163,42 @@ class MainActivity : ComponentActivity() {
                             viewModel = replayViewModel,
                             onBack = { navController.popBackStack() }
                         )
+                    }
+                    composable("friends") {
+                        val app = application as RoadLogApp
+                        val currentUser by app.authRepository.currentUser.collectAsStateWithLifecycle()
+                        if (currentUser == null) {
+                            val signInViewModel: SignInViewModel = viewModel(
+                                factory = viewModelFactory {
+                                    initializer { SignInViewModel(app.authRepository) }
+                                }
+                            )
+                            SignInScreen(
+                                viewModel = signInViewModel,
+                                onBack = { navController.popBackStack() }
+                            )
+                        } else {
+                            // Idempotent — keeps /users/{uid} up to date with
+                            // whatever name/email this sign-in resolved to,
+                            // so friend-request lookups by email always work.
+                            LaunchedEffect(currentUser) {
+                                val user = currentUser ?: return@LaunchedEffect
+                                val displayName = user.displayName?.takeIf { it.isNotBlank() }
+                                    ?: user.email?.substringBefore("@")
+                                    ?: "RoadLog user"
+                                app.friendsRepository.ensureProfileWritten(displayName)
+                            }
+                            val friendsViewModel: FriendsViewModel = viewModel(
+                                factory = viewModelFactory {
+                                    initializer { FriendsViewModel(app.friendsRepository) }
+                                }
+                            )
+                            FriendsScreen(
+                                viewModel = friendsViewModel,
+                                onBack = { navController.popBackStack() },
+                                onSignOut = { app.authRepository.signOut() }
+                            )
+                        }
                     }
                 }
             }
