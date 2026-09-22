@@ -22,6 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.roadlog.data.DistanceUnit
 import com.roadlog.data.Trip
 import com.roadlog.data.TripStatus
+import com.roadlog.data.VehicleProfile
 import com.roadlog.ui.HomeViewModel
 import com.roadlog.ui.theme.AccentAmber
 import com.roadlog.ui.theme.AccentGreen
@@ -39,12 +40,15 @@ fun HomeScreen(
     onStopTrip: () -> Unit,
     onTripClick: (Long) -> Unit,
     onOpenStats: () -> Unit,
+    onOpenGarage: () -> Unit,
     onToggleAutoDetect: () -> Unit
 ) {
     val activeTrip by viewModel.activeTrip.collectAsStateWithLifecycle()
     val history by viewModel.tripHistory.collectAsStateWithLifecycle()
     val unit by viewModel.unit.collectAsStateWithLifecycle()
     val autoDetectEnabled by viewModel.autoDetectEnabled.collectAsStateWithLifecycle()
+    val vehicles by viewModel.vehicles.collectAsStateWithLifecycle()
+    val selectedVehicleId by viewModel.selectedVehicleId.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<Trip?>(null) }
 
     Column(
@@ -70,6 +74,12 @@ fun HomeScreen(
                     color = TextSecondary,
                     modifier = Modifier.clickable(onClick = onOpenStats)
                 )
+                Text(
+                    text = "GARAGE",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary,
+                    modifier = Modifier.clickable(onClick = onOpenGarage)
+                )
                 AutoDetectToggle(enabled = autoDetectEnabled, onToggle = onToggleAutoDetect)
                 UnitToggle(unit = unit, onToggle = viewModel::toggleUnit)
             }
@@ -80,6 +90,15 @@ fun HomeScreen(
             style = MaterialTheme.typography.headlineLarge,
             color = if (activeTrip != null) AccentGreen else Color.White
         )
+
+        if (activeTrip == null) {
+            Spacer(Modifier.height(12.dp))
+            VehicleSelector(
+                vehicles = vehicles,
+                selectedVehicleId = selectedVehicleId,
+                onSelect = viewModel::selectVehicle
+            )
+        }
 
         Spacer(Modifier.height(24.dp))
         StartStopButton(
@@ -222,6 +241,48 @@ private fun AutoDetectToggle(enabled: Boolean, onToggle: () -> Unit) {
             .clickable(onClick = onToggle)
             .padding(horizontal = 10.dp, vertical = 4.dp)
     )
+}
+
+@Composable
+private fun VehicleSelector(
+    vehicles: List<VehicleProfile>,
+    selectedVehicleId: Long,
+    onSelect: (Long) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selected = vehicles.find { it.id == selectedVehicleId }
+
+    Box {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(SurfaceRaised, RoundedCornerShape(12.dp))
+                .clickable(enabled = vehicles.size > 1) { expanded = true }
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "VEHICLE: ${selected?.name ?: "None"}",
+                style = MaterialTheme.typography.labelSmall,
+                color = TextSecondary
+            )
+            if (vehicles.size > 1) {
+                Text("▾", color = TextSecondary, style = MaterialTheme.typography.labelSmall)
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            vehicles.forEach { vehicle ->
+                DropdownMenuItem(
+                    text = { Text(vehicle.name) },
+                    onClick = {
+                        onSelect(vehicle.id)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
 }
 
 @Composable

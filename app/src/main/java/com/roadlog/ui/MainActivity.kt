@@ -19,12 +19,16 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.roadlog.RoadLogApp
+import com.roadlog.data.DefaultVehicleProfile
 import com.roadlog.service.LocationTrackingService
 import com.roadlog.service.RideDetection
+import com.roadlog.ui.screens.GarageScreen
 import com.roadlog.ui.screens.HomeScreen
 import com.roadlog.ui.screens.StatsScreen
 import com.roadlog.ui.screens.TripDetailScreen
 import com.roadlog.ui.screens.TripReplayScreen
+import com.roadlog.ui.screens.VehicleEditScreen
+import com.roadlog.ui.screens.VehicleDetailScreen
 import com.roadlog.ui.theme.RoadLogTheme
 
 class MainActivity : ComponentActivity() {
@@ -107,7 +111,63 @@ class MainActivity : ComponentActivity() {
                             onStopTrip = ::onStopTripClicked,
                             onTripClick = { tripId -> navController.navigate("trip/$tripId") },
                             onOpenStats = { navController.navigate("stats") },
+                            onOpenGarage = { navController.navigate("garage") },
                             onToggleAutoDetect = ::onToggleAutoDetectClicked
+                        )
+                    }
+                    composable("garage") {
+                        val app = application as RoadLogApp
+                        val garageViewModel: GarageViewModel = viewModel(
+                            factory = viewModelFactory {
+                                initializer { GarageViewModel(app.repository) }
+                            }
+                        )
+                        GarageScreen(
+                            viewModel = garageViewModel,
+                            onBack = { navController.popBackStack() },
+                            onOpenVehicle = { vehicleId -> navController.navigate("vehicle/$vehicleId") },
+                            onAddVehicle = { navController.navigate("vehicle-edit/0") }
+                        )
+                    }
+                    composable(
+                        route = "vehicle/{vehicleId}",
+                        arguments = listOf(navArgument("vehicleId") { type = NavType.LongType })
+                    ) { backStackEntry ->
+                        val vehicleId = backStackEntry.arguments?.getLong("vehicleId") ?: return@composable
+                        val app = application as RoadLogApp
+                        val vehicleDetailViewModel: VehicleDetailViewModel = viewModel(
+                            key = "vehicle-detail-$vehicleId",
+                            factory = viewModelFactory {
+                                initializer { VehicleDetailViewModel(vehicleId, app.repository, app.unitsRepository) }
+                            }
+                        )
+                        VehicleDetailScreen(
+                            viewModel = vehicleDetailViewModel,
+                            onBack = { navController.popBackStack() },
+                            onEdit = { navController.navigate("vehicle-edit/$vehicleId") }
+                        )
+                    }
+                    composable(
+                        route = "vehicle-edit/{vehicleId}",
+                        arguments = listOf(navArgument("vehicleId") { type = NavType.LongType })
+                    ) { backStackEntry ->
+                        val vehicleId = backStackEntry.arguments?.getLong("vehicleId") ?: 0L
+                        val app = application as RoadLogApp
+                        val editViewModel: VehicleEditViewModel = viewModel(
+                            key = "vehicle-edit-$vehicleId",
+                            factory = viewModelFactory {
+                                initializer {
+                                    VehicleEditViewModel(vehicleId, app.repository, app.vehiclePhotoStore)
+                                }
+                            }
+                        )
+                        VehicleEditScreen(
+                            viewModel = editViewModel,
+                            onBack = { navController.popBackStack() },
+                            onSaved = { navController.popBackStack() },
+                            onDeleted = {
+                                navController.popBackStack("garage", inclusive = false)
+                            }
                         )
                     }
                     composable("stats") {
@@ -163,9 +223,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // Captured at the moment "Start Trip" is tapped so it survives the
+    // async permission-request chain below and still reaches the service
+    // intent whichever branch (immediate start vs. permission grant
+    // callback) actually sends it.
+    private var pendingStartVehicleProfileId: Long = DefaultVehicleProfile.ID
+
     private fun onStartTripClicked() {
+        pendingStartVehicleProfileId = viewModel.selectedVehicleId.value
         if (hasFineLocationPermission()) {
-            sendServiceCommand(LocationTrackingService.ACTION_START_TRIP)
+            sendStartTripCommand()
         } else {
             foregroundLocationPermissionLauncher.launch(
                 arrayOf(
@@ -180,15 +247,19 @@ class MainActivity : ComponentActivity() {
         sendServiceCommand(LocationTrackingService.ACTION_STOP_TRIP)
     }
 
+    private fun sendStartTripCommand() {
+        val intent = Intent(this, LocationTrackingService::class.java).apply {
+            action = LocationTrackingService.ACTION_START_TRIP
+            putExtra(LocationTrackingService.EXTRA_VEHICLE_PROFILE_ID, pendingStartVehicleProfileId)
+        }
+        ContextCompat.startForegroundService(this, intent)
+    }
+
     private fun sendServiceCommand(action: String) {
         val intent = Intent(this, LocationTrackingService::class.java).apply {
             this.action = action
         }
-        if (action == LocationTrackingService.ACTION_START_TRIP) {
-            ContextCompat.startForegroundService(this, intent)
-        } else {
-            startService(intent)
-        }
+        startService(intent)
     }
 
     private fun onToggleAutoDetectClicked() {
@@ -245,7 +316,7 @@ class MainActivity : ComponentActivity() {
         // Fine location is granted at this point — allow the trip to start;
         // the user can grant "Allow all the time" from Settings for
         // uninterrupted background tracking.
-        sendServiceCommand(LocationTrackingService.ACTION_START_TRIP)
+        sendStartTripCommand()
     }
 
     private fun requestNotificationPermissionIfNeeded() {

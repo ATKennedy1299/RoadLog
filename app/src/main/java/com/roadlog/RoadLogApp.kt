@@ -5,6 +5,7 @@ import com.roadlog.data.AppDatabase
 import com.roadlog.data.RideDetectionSettings
 import com.roadlog.data.TripRepository
 import com.roadlog.data.UnitsRepository
+import com.roadlog.data.VehiclePhotoStore
 import com.roadlog.service.RideDetection
 import org.maplibre.android.MapLibre
 
@@ -18,6 +19,9 @@ class RoadLogApp : Application() {
     lateinit var rideDetectionSettings: RideDetectionSettings
         private set
 
+    lateinit var vehiclePhotoStore: VehiclePhotoStore
+        private set
+
     override fun onCreate() {
         super.onCreate()
         MapLibre.getInstance(this)
@@ -25,6 +29,7 @@ class RoadLogApp : Application() {
         repository = TripRepository(db)
         unitsRepository = UnitsRepository(this)
         rideDetectionSettings = RideDetectionSettings(this)
+        vehiclePhotoStore = VehiclePhotoStore(this)
 
         // Defensive re-registration on every process start: cheap and
         // idempotent, and covers cases (e.g. a device reboot) where Play

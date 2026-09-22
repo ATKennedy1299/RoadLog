@@ -27,6 +27,9 @@ interface TripDao {
     @Query("SELECT * FROM trips ORDER BY startTimeEpochMs DESC")
     fun observeAllTrips(): Flow<List<Trip>>
 
+    @Query("SELECT vehicleProfileId FROM trips ORDER BY startTimeEpochMs DESC LIMIT 1")
+    suspend fun getMostRecentVehicleProfileId(): Long?
+
     @Query(
         """
         UPDATE trips

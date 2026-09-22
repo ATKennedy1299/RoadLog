@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
 // fallbackToDestructiveMigration() as the fix for that; it wipes the DB.
 @Database(
     entities = [Trip::class, LocationPoint::class, VehicleProfile::class],
-    version = 2,
+    version = 3,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -35,13 +35,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE vehicle_profiles ADD COLUMN make TEXT")
+                db.execSQL("ALTER TABLE vehicle_profiles ADD COLUMN model TEXT")
+                db.execSQL("ALTER TABLE vehicle_profiles ADD COLUMN year INTEGER")
+                db.execSQL("ALTER TABLE vehicle_profiles ADD COLUMN photoPath TEXT")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "roadlog.db"
-                ).addMigrations(MIGRATION_1_2)
+                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

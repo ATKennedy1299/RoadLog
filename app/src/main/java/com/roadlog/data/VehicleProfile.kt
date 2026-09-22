@@ -10,7 +10,14 @@ data class VehicleProfile(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val type: VehicleType,
-    val colorHex: String
+    val colorHex: String,
+    val make: String? = null,
+    val model: String? = null,
+    val year: Int? = null,
+    // Absolute path to a JPEG copied into this app's private files dir by
+    // VehiclePhotoStore — never a content:// picker Uri, whose grant isn't
+    // guaranteed to survive process death or a reboot.
+    val photoPath: String? = null
 )
 
 /** Seeded on first DB creation so trips always have somewhere to attach in Phase 1. */

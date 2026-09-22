@@ -12,6 +12,7 @@ import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.*
 import com.roadlog.R
 import com.roadlog.RoadLogApp
+import com.roadlog.data.DefaultVehicleProfile
 import com.roadlog.data.Trip
 import com.roadlog.ui.MainActivity
 import kotlinx.coroutines.*
@@ -43,6 +44,7 @@ class LocationTrackingService : Service() {
     companion object {
         const val ACTION_START_TRIP = "com.roadlog.action.START_TRIP"
         const val ACTION_STOP_TRIP = "com.roadlog.action.STOP_TRIP"
+        const val EXTRA_VEHICLE_PROFILE_ID = "com.roadlog.extra.VEHICLE_PROFILE_ID"
         const val ACTION_BEGIN_RIDE_CANDIDATE = "com.roadlog.action.BEGIN_RIDE_CANDIDATE"
         const val ACTION_MOTION_STOPPED = "com.roadlog.action.MOTION_STOPPED"
 
@@ -160,7 +162,11 @@ class LocationTrackingService : Service() {
             startForeground(NOTIFICATION_ID, checkingNotificationBuilder().build())
         }
         when (action) {
-            ACTION_START_TRIP -> serviceScope.launch { onStartTripRequested() }
+            ACTION_START_TRIP -> {
+                val vehicleProfileId = intent?.getLongExtra(EXTRA_VEHICLE_PROFILE_ID, DefaultVehicleProfile.ID)
+                    ?: DefaultVehicleProfile.ID
+                serviceScope.launch { onStartTripRequested(vehicleProfileId) }
+            }
             ACTION_STOP_TRIP -> serviceScope.launch { onStopTripRequested() }
             ACTION_BEGIN_RIDE_CANDIDATE -> serviceScope.launch { onBeginRideCandidateRequested() }
             ACTION_MOTION_STOPPED -> serviceScope.launch { onMotionStoppedRequested() }
@@ -171,7 +177,9 @@ class LocationTrackingService : Service() {
         return START_STICKY
     }
 
-    private suspend fun onStartTripRequested() = ingestionMutex.withLock {
+    private suspend fun onStartTripRequested(
+        vehicleProfileId: Long = DefaultVehicleProfile.ID
+    ) = ingestionMutex.withLock {
         // A manual start always wins over any in-progress ride-detection
         // check. Without this, a stale candidate (with its 3-minute
         // timeout job still scheduled) would later fire mid-recording and
@@ -187,7 +195,7 @@ class LocationTrackingService : Service() {
 
         tripStateMutex.withLock {
             if (activeTripId != null) return@withLock // already tracking
-            val trip = repository.startTrip()
+            val trip = repository.startTrip(vehicleProfileId = vehicleProfileId)
             activeTripId = trip.id
             isCurrentTripAutoDetected = false
             currentTripDistance = 0.0

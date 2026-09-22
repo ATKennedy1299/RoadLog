@@ -37,6 +37,16 @@ class TripRepository(private val db: AppDatabase) {
     suspend fun getRoutePoints(tripId: Long): List<LocationPoint> =
         db.locationPointDao().getAcceptedPointsForTrip(tripId)
 
+    fun observeAllVehicleProfiles(): Flow<List<VehicleProfile>> = db.vehicleProfileDao().observeAll()
+    fun observeVehicleProfile(id: Long): Flow<VehicleProfile?> = db.vehicleProfileDao().observeById(id)
+    suspend fun addVehicleProfile(profile: VehicleProfile): Long = db.vehicleProfileDao().insert(profile)
+    suspend fun updateVehicleProfile(profile: VehicleProfile) = db.vehicleProfileDao().update(profile)
+    suspend fun deleteVehicleProfile(profile: VehicleProfile) = db.vehicleProfileDao().delete(profile)
+
+    /** Defaults new trips to whatever vehicle was used last, not always the seeded default. */
+    suspend fun getLastUsedVehicleProfileId(): Long =
+        db.tripDao().getMostRecentVehicleProfileId() ?: DefaultVehicleProfile.ID
+
     /** Cascade-deletes the trip's location_points via Room's ForeignKey.CASCADE. */
     suspend fun deleteTrip(trip: Trip) = db.tripDao().delete(trip)
 
