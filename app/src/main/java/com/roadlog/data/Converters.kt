@@ -16,6 +16,12 @@ class Converters {
     fun toVehicleType(value: String): VehicleType = VehicleType.valueOf(value)
 
     @TypeConverter
+    fun fromNullableVehicleType(value: VehicleType?): String? = value?.name
+
+    @TypeConverter
+    fun toNullableVehicleType(value: String?): VehicleType? = value?.let { VehicleType.valueOf(it) }
+
+    @TypeConverter
     fun fromSpeedSource(value: SpeedSource): String = value.name
 
     @TypeConverter

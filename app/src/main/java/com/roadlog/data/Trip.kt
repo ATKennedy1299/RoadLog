@@ -20,5 +20,11 @@ data class Trip(
     // True if ride detection started this trip on its own rather than the
     // user pressing "Start Trip" — surfaced in the UI so a false-positive
     // (e.g. riding as a passenger) is easy to spot and delete.
-    val isAutoDetected: Boolean = false
+    val isAutoDetected: Boolean = false,
+    // Best-guess vehicle type from how the phone moved through turns while
+    // recording (see RideMotionClassifier) — null if the classifier never
+    // saw enough clear turns to venture a guess, or the device lacks the
+    // needed sensor. Purely a suggestion surfaced in the UI, never written
+    // back into vehicleProfileId automatically.
+    val detectedVehicleType: VehicleType? = null
 )
