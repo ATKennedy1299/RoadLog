@@ -49,6 +49,9 @@ interface TripDao {
     @Query("UPDATE trips SET status = 'COMPLETED', endTimeEpochMs = :endTime WHERE id = :tripId")
     suspend fun completeTrip(tripId: Long, endTime: Long)
 
+    @Query("UPDATE trips SET vehicleProfileId = :vehicleProfileId WHERE id = :tripId")
+    suspend fun updateVehicleProfileId(tripId: Long, vehicleProfileId: Long)
+
     @Delete
     suspend fun delete(trip: Trip)
 }

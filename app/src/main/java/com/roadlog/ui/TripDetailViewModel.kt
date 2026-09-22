@@ -26,6 +26,9 @@ class TripDetailViewModel(
 
     val unit: StateFlow<DistanceUnit> = unitsRepository.unit
 
+    val vehicles: StateFlow<List<VehicleProfile>> = repository.observeAllVehicleProfiles()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     private val _vehicleProfile = MutableStateFlow<VehicleProfile?>(null)
     val vehicleProfile: StateFlow<VehicleProfile?> = _vehicleProfile.asStateFlow()
 
@@ -51,5 +54,10 @@ class TripDetailViewModel(
             repository.deleteTrip(current)
             onDeleted()
         }
+    }
+
+    /** Only meaningful for a completed trip — an active trip's vehicle is set at start. */
+    fun changeVehicle(vehicleProfileId: Long) {
+        viewModelScope.launch { repository.updateTripVehicle(tripId, vehicleProfileId) }
     }
 }

@@ -67,6 +67,11 @@ class TripRepository(private val db: AppDatabase) {
         db.tripDao().completeTrip(tripId, System.currentTimeMillis())
     }
 
+    /** Recategorizes a trip after the fact — e.g. auto-detect or the picker guessed wrong. */
+    suspend fun updateTripVehicle(tripId: Long, vehicleProfileId: Long) {
+        db.tripDao().updateVehicleProfileId(tripId, vehicleProfileId)
+    }
+
     /**
      * Runs an incoming raw GPS fix through GpsFilter, persists it either way
      * (flagged if rejected), and if accepted, incrementally updates the

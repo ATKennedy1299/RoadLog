@@ -71,25 +71,15 @@ fun VehicleDetailScreen(
         if (currentVehicle == null) {
             Text("Vehicle not found.", style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
         } else {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                VehicleThumbnail(
-                    photoPath = currentVehicle.photoPath,
-                    colorHex = currentVehicle.colorHex,
-                    size = 64.dp
-                )
-                Column {
-                    Text(currentVehicle.name, style = MaterialTheme.typography.headlineLarge, color = Color.White)
-                    val subtitle = listOfNotNull(
-                        currentVehicle.year?.toString(), currentVehicle.make, currentVehicle.model
-                    ).joinToString(" ").ifBlank {
-                        if (currentVehicle.type == VehicleType.MOTORCYCLE) "Motorcycle" else "Car"
-                    }
-                    Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
-                }
+            VehicleCoverPhoto(photoPath = currentVehicle.photoPath, colorHex = currentVehicle.colorHex)
+            Spacer(Modifier.height(16.dp))
+            Text(currentVehicle.name, style = MaterialTheme.typography.headlineLarge, color = Color.White)
+            val subtitle = listOfNotNull(
+                currentVehicle.year?.toString(), currentVehicle.make, currentVehicle.model
+            ).joinToString(" ").ifBlank {
+                if (currentVehicle.type == VehicleType.MOTORCYCLE) "Motorcycle" else "Car"
             }
+            Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = TextSecondary)
             Spacer(Modifier.height(24.dp))
 
             if (stats.totalTrips == 0) {
