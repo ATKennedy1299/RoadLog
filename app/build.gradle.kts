@@ -107,8 +107,11 @@ dependencies {
     // GoogleSignInClient/play-services-auth API, which Google is actively
     // deprecating (play-services-auth 22.0.0 removes it outright) and which
     // has known IPC-related reliability issues on recent Android versions.
-    implementation("androidx.credentials:credentials:1.6.0")
-    implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
+    // Pinned to 1.3.0 rather than latest: 1.6.0's AAR metadata requires
+    // compileSdk 35 + AGP 8.6.0, both bigger, riskier bumps than this
+    // sign-in fix calls for — 1.3.0 still only needs compileSdk 34.
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
     implementation("com.google.android.libraries.identity.googleid:googleid:1.2.1")
 
     // Coroutines
