@@ -31,18 +31,22 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
+import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialException
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.google.android.gms.auth.api.signin.GoogleSignIn
-import com.google.android.gms.auth.api.signin.GoogleSignInOptions
-import com.google.android.gms.common.api.ApiException
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
+import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
+import com.google.android.libraries.identity.googleid.GoogleIdTokenParsingException
 import com.roadlog.R
 import com.roadlog.ui.SignInViewModel
 import com.roadlog.ui.theme.AccentGreen
 import com.roadlog.ui.theme.AccentRed
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
+import kotlinx.coroutines.launch
 
 /**
  * RoadLog's own sign-in screen — Firebase is purely the backend behind it
@@ -53,33 +57,36 @@ import com.roadlog.ui.theme.TextSecondary
 @Composable
 fun SignInScreen(viewModel: SignInViewModel, onBack: () -> Unit) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val isLoading by viewModel.isLoading.collectAsStateWithLifecycle()
     val errorMessage by viewModel.errorMessage.collectAsStateWithLifecycle()
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
 
-    val googleSignInClient = remember {
-        val webClientId = context.getString(R.string.default_web_client_id)
-        val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
-            .requestIdToken(webClientId)
-            .requestEmail()
-            .build()
-        GoogleSignIn.getClient(context, options)
-    }
-
-    val googleSignInLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
-        try {
-            val account = task.getResult(ApiException::class.java)
-            val idToken = account.idToken
-            if (idToken != null) {
-                viewModel.signInWithGoogleIdToken(idToken)
+    fun launchGoogleSignIn() {
+        coroutineScope.launch {
+            try {
+                val credentialManager = CredentialManager.create(context)
+                val option = GetSignInWithGoogleOption.Builder(
+                    serverClientId = context.getString(R.string.default_web_client_id)
+                ).build()
+                val request = GetCredentialRequest.Builder()
+                    .addCredentialOption(option)
+                    .build()
+                val response = credentialManager.getCredential(request = request, context = context)
+                val credential = response.credential
+                if (credential is CustomCredential &&
+                    credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                ) {
+                    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                    viewModel.signInWithGoogleIdToken(googleIdTokenCredential.idToken)
+                }
+            } catch (e: GetCredentialException) {
+                // User cancelled, or no Google account available on this
+                // device — nothing recorded, they can just tap again.
+            } catch (e: GoogleIdTokenParsingException) {
+                // Malformed response — same as above, safe to just retry.
             }
-        } catch (e: ApiException) {
-            // User cancelled or it failed transiently — nothing recorded,
-            // they can just tap the button again.
         }
     }
 
@@ -156,7 +163,7 @@ fun SignInScreen(viewModel: SignInViewModel, onBack: () -> Unit) {
 
         Spacer(Modifier.height(12.dp))
         Button(
-            onClick = { googleSignInLauncher.launch(googleSignInClient.signInIntent) },
+            onClick = { launchGoogleSignIn() },
             enabled = !isLoading,
             colors = ButtonDefaults.buttonColors(containerColor = SurfaceRaised, contentColor = Color.White),
             shape = RoundedCornerShape(12.dp),

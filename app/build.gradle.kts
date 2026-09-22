@@ -102,7 +102,14 @@ dependencies {
     implementation(platform("com.google.firebase:firebase-bom:33.5.1"))
     implementation("com.google.firebase:firebase-auth-ktx")
     implementation("com.google.firebase:firebase-database-ktx")
-    implementation("com.google.android.gms:play-services-auth:21.2.0")
+
+    // Google sign-in via Credential Manager — not the older
+    // GoogleSignInClient/play-services-auth API, which Google is actively
+    // deprecating (play-services-auth 22.0.0 removes it outright) and which
+    // has known IPC-related reliability issues on recent Android versions.
+    implementation("androidx.credentials:credentials:1.6.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.6.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.2.1")
 
     // Coroutines
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
