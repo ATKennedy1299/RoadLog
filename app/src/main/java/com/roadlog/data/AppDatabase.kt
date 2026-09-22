@@ -5,6 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
+import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -16,7 +17,7 @@ import kotlinx.coroutines.launch
 // fallbackToDestructiveMigration() as the fix for that; it wipes the DB.
 @Database(
     entities = [Trip::class, LocationPoint::class, VehicleProfile::class],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -28,22 +29,29 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         @Volatile private var INSTANCE: AppDatabase? = null
 
+        private val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE trips ADD COLUMN isAutoDetected INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "roadlog.db"
-                ).addCallback(object : RoomDatabase.Callback() {
-                    override fun onCreate(db: SupportSQLiteDatabase) {
-                        super.onCreate(db)
-                        // Seed the default vehicle profile so Phase 1 trips
-                        // always have a valid vehicleProfileId to attach to.
-                        CoroutineScope(Dispatchers.IO).launch {
-                            INSTANCE?.vehicleProfileDao()?.insert(DefaultVehicleProfile.profile)
+                ).addMigrations(MIGRATION_1_2)
+                    .addCallback(object : RoomDatabase.Callback() {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            super.onCreate(db)
+                            // Seed the default vehicle profile so Phase 1 trips
+                            // always have a valid vehicleProfileId to attach to.
+                            CoroutineScope(Dispatchers.IO).launch {
+                                INSTANCE?.vehicleProfileDao()?.insert(DefaultVehicleProfile.profile)
+                            }
                         }
-                    }
-                }).build().also { INSTANCE = it }
+                    }).build().also { INSTANCE = it }
             }
         }
     }

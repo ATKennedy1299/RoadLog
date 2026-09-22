@@ -20,6 +20,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.roadlog.RoadLogApp
 import com.roadlog.service.LocationTrackingService
+import com.roadlog.service.RideDetection
 import com.roadlog.ui.screens.HomeScreen
 import com.roadlog.ui.screens.StatsScreen
 import com.roadlog.ui.screens.TripDetailScreen
@@ -31,7 +32,8 @@ class MainActivity : ComponentActivity() {
     private val viewModel: HomeViewModel by viewModels {
         ViewModelFactory(
             (application as RoadLogApp).repository,
-            (application as RoadLogApp).unitsRepository
+            (application as RoadLogApp).unitsRepository,
+            (application as RoadLogApp).rideDetectionSettings
         )
     }
 
@@ -55,6 +57,14 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { /* no-op: notification just won't show if denied */ }
 
+    private val activityRecognitionPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) enableAutoDetect()
+        // else: leave the setting off — the toggle just reflects that
+        // RideDetectionSettings was never flipped to true.
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -70,7 +80,8 @@ class MainActivity : ComponentActivity() {
                             onStartTrip = ::onStartTripClicked,
                             onStopTrip = ::onStopTripClicked,
                             onTripClick = { tripId -> navController.navigate("trip/$tripId") },
-                            onOpenStats = { navController.navigate("stats") }
+                            onOpenStats = { navController.navigate("stats") },
+                            onToggleAutoDetect = ::onToggleAutoDetectClicked
                         )
                     }
                     composable("stats") {
@@ -152,6 +163,26 @@ class MainActivity : ComponentActivity() {
         } else {
             startService(intent)
         }
+    }
+
+    private fun onToggleAutoDetectClicked() {
+        val app = application as RoadLogApp
+        when {
+            app.rideDetectionSettings.enabled.value -> {
+                RideDetection.unregister(this)
+                app.rideDetectionSettings.setEnabled(false)
+            }
+            RideDetection.hasPermission(this) -> enableAutoDetect()
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+                activityRecognitionPermissionLauncher.launch(Manifest.permission.ACTIVITY_RECOGNITION)
+            else -> enableAutoDetect() // pre-Q: granted at install time
+        }
+    }
+
+    private fun enableAutoDetect() {
+        val app = application as RoadLogApp
+        RideDetection.register(this)
+        app.rideDetectionSettings.setEnabled(true)
     }
 
     private fun maybeRequestBackgroundLocation() {

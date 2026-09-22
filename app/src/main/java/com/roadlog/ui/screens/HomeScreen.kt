@@ -38,11 +38,13 @@ fun HomeScreen(
     onStartTrip: () -> Unit,
     onStopTrip: () -> Unit,
     onTripClick: (Long) -> Unit,
-    onOpenStats: () -> Unit
+    onOpenStats: () -> Unit,
+    onToggleAutoDetect: () -> Unit
 ) {
     val activeTrip by viewModel.activeTrip.collectAsStateWithLifecycle()
     val history by viewModel.tripHistory.collectAsStateWithLifecycle()
     val unit by viewModel.unit.collectAsStateWithLifecycle()
+    val autoDetectEnabled by viewModel.autoDetectEnabled.collectAsStateWithLifecycle()
     var pendingDelete by remember { mutableStateOf<Trip?>(null) }
 
     Column(
@@ -68,6 +70,7 @@ fun HomeScreen(
                     color = TextSecondary,
                     modifier = Modifier.clickable(onClick = onOpenStats)
                 )
+                AutoDetectToggle(enabled = autoDetectEnabled, onToggle = onToggleAutoDetect)
                 UnitToggle(unit = unit, onToggle = viewModel::toggleUnit)
             }
         }
@@ -208,6 +211,20 @@ private fun UnitToggle(unit: DistanceUnit, onToggle: () -> Unit) {
 }
 
 @Composable
+private fun AutoDetectToggle(enabled: Boolean, onToggle: () -> Unit) {
+    Text(
+        text = if (enabled) "AUTO: ON" else "AUTO: OFF",
+        style = MaterialTheme.typography.labelSmall,
+        color = if (enabled) AccentGreen else TextSecondary,
+        fontWeight = if (enabled) FontWeight.Bold else FontWeight.Normal,
+        modifier = Modifier
+            .background(SurfaceRaised, RoundedCornerShape(8.dp))
+            .clickable(onClick = onToggle)
+            .padding(horizontal = 10.dp, vertical = 4.dp)
+    )
+}
+
+@Composable
 private fun StartStopButton(isRecording: Boolean, onStart: () -> Unit, onStop: () -> Unit) {
     Button(
         onClick = { if (isRecording) onStop() else onStart() },
@@ -250,8 +267,13 @@ private fun TripRow(trip: Trip, unit: DistanceUnit, onClick: () -> Unit) {
                 text = dateFormat.format(Date(trip.startTimeEpochMs)),
                 style = MaterialTheme.typography.titleMedium
             )
-            if (trip.status.name == "ACTIVE") {
-                Text("● LIVE", color = AccentAmber, style = MaterialTheme.typography.labelSmall)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (trip.isAutoDetected) {
+                    Text("AUTO", color = TextSecondary, style = MaterialTheme.typography.labelSmall)
+                }
+                if (trip.status.name == "ACTIVE") {
+                    Text("● LIVE", color = AccentAmber, style = MaterialTheme.typography.labelSmall)
+                }
             }
         }
         Spacer(Modifier.height(8.dp))

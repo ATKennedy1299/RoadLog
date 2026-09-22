@@ -40,10 +40,14 @@ class TripRepository(private val db: AppDatabase) {
     /** Cascade-deletes the trip's location_points via Room's ForeignKey.CASCADE. */
     suspend fun deleteTrip(trip: Trip) = db.tripDao().delete(trip)
 
-    suspend fun startTrip(vehicleProfileId: Long = DefaultVehicleProfile.ID): Trip {
+    suspend fun startTrip(
+        vehicleProfileId: Long = DefaultVehicleProfile.ID,
+        isAutoDetected: Boolean = false
+    ): Trip {
         val trip = Trip(
             vehicleProfileId = vehicleProfileId,
-            startTimeEpochMs = System.currentTimeMillis()
+            startTimeEpochMs = System.currentTimeMillis(),
+            isAutoDetected = isAutoDetected
         )
         val id = db.tripDao().insert(trip)
         return trip.copy(id = id)

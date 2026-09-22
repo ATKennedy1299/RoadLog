@@ -16,5 +16,9 @@ data class Trip(
     // have to re-scan all points to render the trip list.
     val distanceMeters: Double = 0.0,
     val maxSpeedMps: Double = 0.0,
-    val pointCount: Int = 0
+    val pointCount: Int = 0,
+    // True if ride detection started this trip on its own rather than the
+    // user pressing "Start Trip" — surfaced in the UI so a false-positive
+    // (e.g. riding as a passenger) is easy to spot and delete.
+    val isAutoDetected: Boolean = false
 )

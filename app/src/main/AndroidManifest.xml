@@ -13,6 +13,13 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
 
+    <!-- Automatic ride detection: STILL enter/exit transitions from Google
+         Play Services. ACTIVITY_RECOGNITION is a runtime permission from
+         Android 10 (API 29) on; the gms permission covers older versions,
+         where it's granted automatically at install time. -->
+    <uses-permission android:name="android.permission.ACTIVITY_RECOGNITION" />
+    <uses-permission android:name="com.google.android.gms.permission.ACTIVITY_RECOGNITION" />
+
     <application
         android:name=".RoadLogApp"
         android:allowBackup="true"
@@ -36,6 +43,10 @@
             android:name=".service.LocationTrackingService"
             android:exported="false"
             android:foregroundServiceType="location" />
+
+        <receiver
+            android:name=".service.RideDetectionReceiver"
+            android:exported="false" />
 
     </application>
 </manifest>
