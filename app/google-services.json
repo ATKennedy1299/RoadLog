@@ -8,41 +8,20 @@
   "client": [
     {
       "client_info": {
-        "mobilesdk_app_id": "1:756649564744:android:b74507639fcfa9b887167d",
-        "android_client_info": {
-          "package_name": "Com.roadlog"
-        }
-      },
-      "oauth_client": [
-        {
-          "client_id": "756649564744-rss4o4ct216855obpng1b3o36ni7tmo0.apps.googleusercontent.com",
-          "client_type": 3
-        }
-      ],
-      "api_key": [
-        {
-          "current_key": "AIzaSyDqHmJTfQ8-8JABLM51bbP5R0TrFCBYRpY"
-        }
-      ],
-      "services": {
-        "appinvite_service": {
-          "other_platform_oauth_client": [
-            {
-              "client_id": "756649564744-rss4o4ct216855obpng1b3o36ni7tmo0.apps.googleusercontent.com",
-              "client_type": 3
-            }
-          ]
-        }
-      }
-    },
-    {
-      "client_info": {
         "mobilesdk_app_id": "1:756649564744:android:1dc59e2d18d944a287167d",
         "android_client_info": {
           "package_name": "com.roadlog"
         }
       },
       "oauth_client": [
+        {
+          "client_id": "756649564744-dgqld19og4nn3mjp2duadrdn9l193pp8.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.roadlog",
+            "certificate_hash": "72e549f27e2f2afa9349bd0bbb2c5df13dc1e4a9"
+          }
+        },
         {
           "client_id": "756649564744-rss4o4ct216855obpng1b3o36ni7tmo0.apps.googleusercontent.com",
           "client_type": 3
