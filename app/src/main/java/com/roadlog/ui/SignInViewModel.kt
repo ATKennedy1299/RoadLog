@@ -28,6 +28,25 @@ class SignInViewModel(private val authRepository: AuthRepository) : ViewModel() 
         authRepository.signInWithGoogleIdToken(idToken)
     }
 
+    // Credential Manager's account-picker step happens in the Composable
+    // (it needs an Activity Context, which a ViewModel shouldn't hold), so
+    // it can't go through runAuthAction like the calls above — these let it
+    // report into the same loading/error state instead of failing silently.
+    fun beginGoogleSignIn() {
+        _isLoading.value = true
+        _errorMessage.value = null
+    }
+
+    fun reportGoogleSignInFailure(message: String) {
+        _errorMessage.value = message
+        _isLoading.value = false
+    }
+
+    /** User backed out of the account picker — not a failure, just stop showing the spinner. */
+    fun cancelGoogleSignIn() {
+        _isLoading.value = false
+    }
+
     fun clearError() {
         _errorMessage.value = null
     }

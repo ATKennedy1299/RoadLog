@@ -31,10 +31,12 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import android.util.Log
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.credentials.CredentialManager
 import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialCancellationException
 import androidx.credentials.exceptions.GetCredentialException
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
@@ -64,6 +66,7 @@ fun SignInScreen(viewModel: SignInViewModel, onBack: () -> Unit) {
     var password by remember { mutableStateOf("") }
 
     fun launchGoogleSignIn() {
+        viewModel.beginGoogleSignIn()
         coroutineScope.launch {
             try {
                 val credentialManager = CredentialManager.create(context)
@@ -80,12 +83,24 @@ fun SignInScreen(viewModel: SignInViewModel, onBack: () -> Unit) {
                 ) {
                     val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
                     viewModel.signInWithGoogleIdToken(googleIdTokenCredential.idToken)
+                } else {
+                    viewModel.reportGoogleSignInFailure(
+                        "Unexpected credential type: ${credential::class.simpleName}"
+                    )
                 }
+            } catch (e: GetCredentialCancellationException) {
+                // User backed out of the account picker — not a failure.
+                viewModel.cancelGoogleSignIn()
             } catch (e: GetCredentialException) {
-                // User cancelled, or no Google account available on this
-                // device — nothing recorded, they can just tap again.
+                Log.e("SignInScreen", "Google sign-in failed", e)
+                viewModel.reportGoogleSignInFailure(
+                    "Google sign-in failed: ${e::class.simpleName}: ${e.message ?: "no message"}"
+                )
             } catch (e: GoogleIdTokenParsingException) {
-                // Malformed response — same as above, safe to just retry.
+                Log.e("SignInScreen", "Couldn't parse Google credential", e)
+                viewModel.reportGoogleSignInFailure(
+                    "Couldn't read Google credential: ${e.message ?: "no message"}"
+                )
             }
         }
     }
