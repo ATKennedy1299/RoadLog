@@ -391,11 +391,13 @@ class LocationTrackingService : Service() {
         }
     }
 
+    private fun hasFineLocationPermission(): Boolean =
+        ActivityCompat.checkSelfPermission(
+            this, android.Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
     private fun beginLocationUpdates(highAccuracy: Boolean) {
-        if (ActivityCompat.checkSelfPermission(
-                this, android.Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
+        if (!hasFineLocationPermission()) {
             Log.w(TAG, "Missing ACCESS_FINE_LOCATION at service start")
             return
         }

@@ -28,6 +28,26 @@ class RideDetectionReceiver : BroadcastReceiver() {
         if (!ActivityTransitionResult.hasResult(intent)) return
         val result = ActivityTransitionResult.extractResult(intent) ?: return
 
+        // LocationTrackingService declares foregroundServiceType="location",
+        // so a fresh startForeground() call throws a SecurityException on
+        // Android 14+ if the app doesn't already hold location permission
+        // at that exact moment — and there is no safe way to recover from
+        // that once startForegroundService() has been called; calling
+        // stopSelf() instead of startForeground() still crashes the same
+        // way, since the OS's countdown starts the moment
+        // startForegroundService() is invoked, not when onStartCommand()
+        // decides what to do. So the only safe fix is to never call it at
+        // all here when location isn't granted — a real scenario, since
+        // ride detection is triggered by the OS before the user has ever
+        // opened the app or granted anything. Neither action below could
+        // do anything useful without location access anyway.
+        if (ContextCompat.checkSelfPermission(
+                context, Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
         for (event in result.transitionEvents) {
             if (event.activityType != DetectedActivity.STILL) continue
             val action = when (event.transitionType) {
