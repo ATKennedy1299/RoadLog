@@ -170,7 +170,8 @@ class MainActivity : ComponentActivity() {
                         VehicleDetailScreen(
                             viewModel = vehicleDetailViewModel,
                             onBack = { navController.popBackStack() },
-                            onEdit = { navController.navigate("vehicle-edit/$vehicleId") }
+                            onEdit = { navController.navigate("vehicle-edit/$vehicleId") },
+                            onOpenTrip = { tripId -> navController.navigate("trip/$tripId") }
                         )
                     }
                     composable(
@@ -205,7 +206,8 @@ class MainActivity : ComponentActivity() {
                         )
                         StatsScreen(
                             viewModel = statsViewModel,
-                            onOpenTrip = { tripId -> navController.navigate("trip/$tripId") }
+                            onOpenTrip = { tripId -> navController.navigate("trip/$tripId") },
+                            onOpenVehicle = { vehicleId -> navController.navigate("vehicle/$vehicleId") }
                         )
                     }
                     composable(

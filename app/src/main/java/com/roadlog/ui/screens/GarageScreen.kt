@@ -30,7 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -133,39 +132,5 @@ fun VehicleThumbnail(photoPath: String?, colorHex: String, size: Dp, modifier: M
             runCatching { Color(android.graphics.Color.parseColor(colorHex)) }.getOrDefault(AccentGreen)
         }
         Box(modifier = modifier.size(size).clip(CircleShape).background(color))
-    }
-}
-
-/**
- * Facebook-style cover photo for the vehicle detail screen: full width,
- * fixed height, cropped to fill — a solid color tag fills in when there's
- * no photo, so the layout doesn't shift depending on whether one's set.
- */
-@Composable
-fun VehicleCoverPhoto(photoPath: String?, colorHex: String, modifier: Modifier = Modifier) {
-    val bitmap = remember(photoPath) {
-        photoPath?.let { BitmapFactory.decodeFile(it)?.asImageBitmap() }
-    }
-    if (bitmap != null) {
-        Image(
-            bitmap = bitmap,
-            contentDescription = null,
-            contentScale = ContentScale.Crop,
-            modifier = modifier
-                .fillMaxWidth()
-                .height(200.dp)
-                .clip(RoundedCornerShape(16.dp))
-        )
-    } else {
-        val color = remember(colorHex) {
-            runCatching { Color(android.graphics.Color.parseColor(colorHex)) }.getOrDefault(AccentGreen)
-        }
-        Box(
-            modifier = modifier
-                .fillMaxWidth()
-                .height(200.dp)
-                .clip(RoundedCornerShape(16.dp))
-                .background(color)
-        )
     }
 }

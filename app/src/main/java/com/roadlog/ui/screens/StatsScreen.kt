@@ -3,6 +3,7 @@ package com.roadlog.ui.screens
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -11,36 +12,49 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.roadlog.data.CumulativeStats
 import com.roadlog.data.DistanceUnit
 import com.roadlog.data.PeriodStats
 import com.roadlog.data.Trip
+import com.roadlog.data.VehicleUsageStats
+import com.roadlog.data.WeeklyDistance
 import com.roadlog.ui.StatsViewModel
 import com.roadlog.ui.theme.AccentGreen
+import com.roadlog.ui.theme.DividerColor
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
 import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
 
 @Composable
 fun StatsScreen(
     viewModel: StatsViewModel,
-    onOpenTrip: (Long) -> Unit
+    onOpenTrip: (Long) -> Unit,
+    onOpenVehicle: (Long) -> Unit
 ) {
     val stats by viewModel.stats.collectAsStateWithLifecycle()
     val unit by viewModel.unit.collectAsStateWithLifecycle()
+    val weeklyDistances by viewModel.weeklyDistances.collectAsStateWithLifecycle()
+    val topVehicles by viewModel.topVehicles.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -67,6 +81,10 @@ fun StatsScreen(
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                item { ThisMonthCard(stats.thisMonth, weeklyDistances, unit) }
+                if (topVehicles.isNotEmpty()) {
+                    item { TopVehiclesSection(topVehicles, unit, onOpenVehicle) }
+                }
                 item { HeroDistanceCard(stats, unit) }
                 item { OverviewCard(stats, unit) }
                 item {
@@ -97,6 +115,138 @@ fun StatsScreen(
                 item { PeriodCard("ALL TIME", stats.allTime, unit) }
             }
         }
+    }
+}
+
+@Composable
+private fun ThisMonthCard(period: PeriodStats, weeklyDistances: List<WeeklyDistance>, unit: DistanceUnit) {
+    val dateRange = remember {
+        val today = LocalDate.now()
+        val start = today.withDayOfMonth(1)
+        val end = today.withDayOfMonth(today.lengthOfMonth())
+        val formatter = DateTimeFormatter.ofPattern("MMM d", Locale.getDefault())
+        "${start.format(formatter)} – ${end.format(formatter)}"
+    }
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceRaised, RoundedCornerShape(16.dp))
+            .padding(20.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "THIS MONTH",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color.White,
+                fontWeight = FontWeight.Bold
+            )
+            Text(dateRange, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+        }
+        Spacer(Modifier.height(16.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            StatText(
+                label = "DISTANCE",
+                value = String.format(
+                    Locale.US, "%.0f %s", unit.metersToDistance(period.totalDistanceMeters), unit.distanceLabel
+                )
+            )
+            StatText(label = "DRIVE TIME", value = formatDuration(period.totalDurationMs / 1000))
+            StatText(
+                label = "TOP SPEED",
+                value = String.format(Locale.US, "%.0f %s", unit.mpsToSpeed(period.highestSpeedMps), unit.speedLabel)
+            )
+        }
+        if (weeklyDistances.any { it.distanceMeters > 0 }) {
+            Spacer(Modifier.height(20.dp))
+            WeeklyBarChart(weeklyDistances)
+        }
+    }
+}
+
+@Composable
+private fun WeeklyBarChart(weeks: List<WeeklyDistance>) {
+    val maxValue = weeks.maxOfOrNull { it.distanceMeters }?.coerceAtLeast(1.0) ?: 1.0
+    Row(
+        modifier = Modifier.fillMaxWidth().height(110.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        weeks.forEach { week ->
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                val fraction = (week.distanceMeters / maxValue).toFloat().coerceIn(0f, 1f)
+                Box(
+                    modifier = Modifier
+                        .width(24.dp)
+                        .height((80.dp * fraction).coerceAtLeast(4.dp))
+                        .background(AccentGreen, RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(week.weekLabel, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TopVehiclesSection(
+    vehicles: List<VehicleUsageStats>,
+    unit: DistanceUnit,
+    onOpenVehicle: (Long) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text("TOP VEHICLES", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+        vehicles.forEach { usage ->
+            TopVehicleRow(usage, unit, onClick = { onOpenVehicle(usage.vehicle.id) })
+        }
+    }
+}
+
+@Composable
+private fun TopVehicleRow(usage: VehicleUsageStats, unit: DistanceUnit, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceRaised, RoundedCornerShape(16.dp))
+            .clickable(onClick = onClick)
+            .padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)
+    ) {
+        VehicleThumbnail(photoPath = usage.vehicle.photoPath, colorHex = usage.vehicle.colorHex, size = 48.dp)
+        Column(modifier = Modifier.weight(1f)) {
+            Text(usage.vehicle.name, style = MaterialTheme.typography.titleMedium, color = Color.White)
+            val line = String.format(
+                Locale.US, "%.1f %s · %s · %.0f %s",
+                unit.metersToDistance(usage.totalDistanceMeters), unit.distanceLabel,
+                formatDuration(usage.totalDurationMs / 1000),
+                unit.mpsToSpeed(usage.highestSpeedMps), unit.speedLabel
+            )
+            Text(line, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
+        }
+        UsageRing(fraction = usage.shareOfTotalDistance)
+    }
+}
+
+@Composable
+private fun UsageRing(fraction: Float) {
+    Box(modifier = Modifier.size(52.dp), contentAlignment = Alignment.Center) {
+        CircularProgressIndicator(
+            progress = { fraction },
+            modifier = Modifier.fillMaxSize(),
+            color = AccentGreen,
+            trackColor = DividerColor,
+            strokeWidth = 4.dp
+        )
+        Text(
+            text = "${(fraction * 100).toInt()}%",
+            style = MaterialTheme.typography.labelSmall,
+            color = Color.White,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
@@ -219,7 +369,7 @@ private fun FastestTripCard(trip: Trip?, unit: DistanceUnit, onClick: () -> Unit
 }
 
 @Composable
-private fun PeriodCard(label: String, period: PeriodStats, unit: DistanceUnit) {
+fun PeriodCard(label: String, period: PeriodStats, unit: DistanceUnit) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
