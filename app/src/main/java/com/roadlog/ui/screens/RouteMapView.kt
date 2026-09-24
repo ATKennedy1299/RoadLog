@@ -96,8 +96,13 @@ private const val CAMERA_PADDING_PX = 64
 
 enum class MapType { STREET, SATELLITE }
 
-/** What RouteMapView needs per point: position plus the recorded speed driving its segment's color. */
-data class RoutePoint(val latLng: LatLng, val speedMps: Float?)
+/**
+ * What RouteMapView needs per point: position, the recorded speed driving
+ * its segment's color, and whether it starts a new segment after a GPS gap
+ * (see GpsFilter) — the line is broken there rather than drawing a straight
+ * line across ground that was never actually recorded.
+ */
+data class RoutePoint(val latLng: LatLng, val speedMps: Float?, val startsNewSegment: Boolean = false)
 
 /**
  * Renders a route as a polyline colored by recorded speed (see [SpeedZone]),
@@ -306,24 +311,44 @@ private data class ColoredSegment(val zone: SpeedZone, val points: List<LatLng>)
  * no visible gaps at zone transitions since adjacent runs share their
  * boundary point. A segment between point i and i+1 is colored by the
  * speed recorded at point i (the segment's starting point).
+ *
+ * A point with [RoutePoint.startsNewSegment] set breaks the line entirely
+ * rather than joining a run: the hop leading into it crosses a GPS gap (a
+ * tunnel, a dead zone, the phone being off), so there's no real path to
+ * draw there, only a resumption point.
  */
 private fun buildColoredSegments(points: List<RoutePoint>): List<ColoredSegment> {
     if (points.size < 2) return emptyList()
 
-    val segmentZones = (0 until points.size - 1).map { SpeedZone.fromMps(points[it].speedMps) }
     val runs = mutableListOf<ColoredSegment>()
-    var runStart = 0
-    var runZone = segmentZones[0]
+    var runStart = -1
+    var runZone: SpeedZone? = null
 
-    for (segmentIndex in 1 until segmentZones.size) {
-        val zone = segmentZones[segmentIndex]
-        if (zone != runZone) {
-            runs += ColoredSegment(runZone, points.subList(runStart, segmentIndex + 1).map { it.latLng })
-            runStart = segmentIndex
+    fun flushRun(endExclusive: Int) {
+        val zone = runZone
+        if (runStart >= 0 && zone != null) {
+            runs += ColoredSegment(zone, points.subList(runStart, endExclusive).map { it.latLng })
+        }
+        runStart = -1
+        runZone = null
+    }
+
+    for (i in 0 until points.size - 1) {
+        if (points[i + 1].startsNewSegment) {
+            flushRun(i + 1) // close out the run up to and including point i; draw nothing across the gap
+            continue
+        }
+        val zone = SpeedZone.fromMps(points[i].speedMps)
+        if (runStart < 0) {
+            runStart = i
+            runZone = zone
+        } else if (zone != runZone) {
+            flushRun(i + 1)
+            runStart = i
             runZone = zone
         }
     }
-    runs += ColoredSegment(runZone, points.subList(runStart, points.size).map { it.latLng })
+    flushRun(points.size)
     return runs
 }
 
@@ -347,11 +372,14 @@ private fun drawRoute(style: Style, points: List<RoutePoint>, zoneColors: ZoneCo
     )
 
     addStartMarker(style, points.first().latLng)
-    // Only meaningful once there's an actual route (2+ points, so a "last
-    // segment" exists) — tint the pin with that segment's zone color so it
-    // reads as part of the same route rather than an unrelated fixed color.
-    segments.lastOrNull()?.let { lastSegment ->
-        addEndMarker(style, points.last().latLng, zoneColors.forZone(lastSegment.zone))
+    // Only meaningful once there's an actual route (2+ points). Tint the pin
+    // with the last drawn segment's zone color so it reads as part of the
+    // same route; if the final hop was a GPS gap (no drawn segment reaches
+    // the endpoint), fall back to the endpoint's own recorded speed so the
+    // marker still shows rather than being silently dropped.
+    if (points.size >= 2) {
+        val endZone = segments.lastOrNull()?.zone ?: SpeedZone.fromMps(points.last().speedMps)
+        addEndMarker(style, points.last().latLng, zoneColors.forZone(endZone))
     }
 }
 

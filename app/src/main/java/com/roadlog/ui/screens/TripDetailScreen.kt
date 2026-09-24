@@ -58,7 +58,7 @@ fun TripDetailScreen(
     val unit by viewModel.unit.collectAsStateWithLifecycle()
     val routePoints by viewModel.routePoints.collectAsStateWithLifecycle()
     val routeMapPoints = remember(routePoints) {
-        routePoints.map { RoutePoint(LatLng(it.latitude, it.longitude), it.gpsSpeedMps) }
+        routePoints.map { RoutePoint(LatLng(it.latitude, it.longitude), it.gpsSpeedMps, it.startsNewSegment) }
     }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var suggestionDismissed by remember(trip?.id) { mutableStateOf(false) }

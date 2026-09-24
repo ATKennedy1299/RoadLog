@@ -144,7 +144,7 @@ private fun ReplayMap(
     modifier: Modifier = Modifier
 ) {
     val routePoints = remember(locationPoints) {
-        locationPoints.map { RoutePoint(LatLng(it.latitude, it.longitude), it.gpsSpeedMps) }
+        locationPoints.map { RoutePoint(LatLng(it.latitude, it.longitude), it.gpsSpeedMps, it.startsNewSegment) }
     }
 
     Box(modifier = modifier) {

@@ -144,6 +144,18 @@ private fun computeFrame(points: List<LocationPoint>, progress: Float): ReplayFr
     val span = (nextElapsedMs - prevElapsedMs).coerceAtLeast(1)
     val t = ((targetElapsedMs - prevElapsedMs).toDouble() / span).coerceIn(0.0, 1.0)
 
+    if (next.startsNewSegment) {
+        // No real path data between these two fixes (a tunnel, dead zone, or
+        // the phone being off) — holding at prev's position until next's
+        // timestamp arrives reads truer than smoothly gliding across ground
+        // that was never actually recorded, and matches the route map's own
+        // break in the line here.
+        val holdAtPrev = t < 1.0
+        val point = if (holdAtPrev) prev else next
+        val speed = if (holdAtPrev) (prev.gpsSpeedMps?.toDouble() ?: 0.0) else (next.gpsSpeedMps?.toDouble() ?: 0.0)
+        return ReplayFrame(point.latitude, point.longitude, speed, point.speedSource)
+    }
+
     val lat = prev.latitude + (next.latitude - prev.latitude) * t
     val lng = prev.longitude + (next.longitude - prev.longitude) * t
     val prevSpeed = prev.gpsSpeedMps?.toDouble() ?: 0.0
