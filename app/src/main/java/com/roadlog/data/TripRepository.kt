@@ -114,13 +114,17 @@ class TripRepository(private val db: AppDatabase) {
             accuracyMeters = accuracyMeters,
             altitudeMeters = altitudeMeters,
             bearing = bearing,
-            isFiltered = !result.accepted
+            isFiltered = !result.accepted,
+            startsNewSegment = result.isGapStart
         )
         db.locationPointDao().insert(point)
 
         if (result.accepted) {
             val trip = db.tripDao().getById(tripId) ?: return
-            val addedDistance = if (lastAccepted != null) {
+            // A gap-start point has no known path back to the last accepted
+            // fix — the straight-line distance between them isn't real
+            // travel, so it isn't added (see GpsFilter's gap gate).
+            val addedDistance = if (lastAccepted != null && !result.isGapStart) {
                 DistanceUtils.haversineMeters(
                     lastAccepted.latitude, lastAccepted.longitude, latitude, longitude
                 )

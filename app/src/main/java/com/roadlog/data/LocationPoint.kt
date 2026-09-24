@@ -37,5 +37,11 @@ data class LocationPoint(
     val speedSource: SpeedSource = SpeedSource.GPS_RAW,
     // true if GpsFilter flagged this as an implausible jump. Kept (not
     // dropped) so replay/debugging can show what was excluded and why.
-    val isFiltered: Boolean = false
+    val isFiltered: Boolean = false,
+    // true if GpsFilter saw too long a gap since the previous accepted fix
+    // to trust a straight line between them as the real path (a tunnel, a
+    // dead zone, the phone being off) — the route map and replay both treat
+    // this point as the start of a new, disconnected segment rather than
+    // drawing/animating a fake straight-line "trip" across the gap.
+    val startsNewSegment: Boolean = false
 )
