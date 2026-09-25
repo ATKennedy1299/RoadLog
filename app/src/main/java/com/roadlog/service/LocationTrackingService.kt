@@ -39,6 +39,13 @@ import java.util.concurrent.TimeUnit
  * (a "candidate" confirmation window), never by which activity type Play
  * Services reports, since that classifier isn't reliable across vehicle
  * types (car vs. motorcycle vs. bicycle).
+ *
+ * Ending an auto-detected trip normally waits on Activity Recognition's
+ * STILL transition to even start the stop-grace countdown — but AR can lag
+ * several minutes behind a real stop, or in rare cases never fire at all.
+ * A GPS-only idle watchdog (see IDLE_SPEED_THRESHOLD_MPS/IDLE_WATCHDOG_MS)
+ * runs independently of that as a backup: if fixes stay below walking speed
+ * for long enough, the trip ends regardless of whether AR ever noticed.
  */
 class LocationTrackingService : Service() {
 
@@ -75,6 +82,22 @@ class LocationTrackingService : Service() {
         // user's own Stop button ends those.
         private val AUTO_STOP_GRACE_MS = TimeUnit.MINUTES.toMillis(5)
 
+        // GPS is noisy even at true zero speed — small position drift
+        // between fixes implies a speed of a couple mph while the phone
+        // hasn't moved at all. This sits comfortably above that jitter but
+        // well below any real crawl-in-traffic speed, so normal stop-and-go
+        // driving never trips it.
+        private const val IDLE_SPEED_THRESHOLD_MPS = 1.5f // ~3.4 mph
+
+        // Backup for when Activity Recognition's STILL transition never
+        // fires (or is very late) after a real stop: if GPS itself shows no
+        // meaningful movement for this long, the trip ends regardless of
+        // whether MOTION_STOPPED ever arrived. Deliberately longer than
+        // AUTO_STOP_GRACE_MS since this is a fallback, not the primary stop
+        // path, and it must not cut off a long, legitimate stop in heavy
+        // traffic.
+        private val IDLE_WATCHDOG_MS = TimeUnit.MINUTES.toMillis(10)
+
         private const val TAG = "LocationTrackingService"
     }
 
@@ -100,6 +123,13 @@ class LocationTrackingService : Service() {
     // ride-detection broadcast racing either).
     private val tripStateMutex = Mutex()
     private var stopGraceJob: Job? = null
+
+    // GPS-only idle watchdog state for the current auto-detected trip (see
+    // IDLE_WATCHDOG_MS above). Updated during ingestion under ingestionMutex;
+    // reset like the other trip-scoped fields above whenever a trip
+    // starts or ends.
+    private var idleSinceMs: Long? = null
+    private var lastMovingFixTimestampMs: Long? = null
 
     private val repository by lazy { (application as RoadLogApp).repository }
     private val unitsRepository by lazy { (application as RoadLogApp).unitsRepository }
@@ -154,6 +184,11 @@ class LocationTrackingService : Service() {
                     isCurrentTripAutoDetected = trip.isAutoDetected
                     currentTripDistance = trip.distanceMeters
                     currentTripMaxSpeed = trip.maxSpeedMps
+                    // No history of this trip's recent speeds survives
+                    // process death, so start the idle clock fresh from now
+                    // rather than risk an immediate false-positive stop.
+                    idleSinceMs = null
+                    lastMovingFixTimestampMs = System.currentTimeMillis()
                     withContext(Dispatchers.Main) {
                         startForeground(NOTIFICATION_ID, buildNotification(trip))
                         beginLocationUpdates(highAccuracy = true)
@@ -256,6 +291,8 @@ class LocationTrackingService : Service() {
         )
         activeTripId = null
         isCurrentTripAutoDetected = false
+        idleSinceMs = null
+        lastMovingFixTimestampMs = null
         rideMotionClassifier.reset()
         withContext(Dispatchers.Main) {
             unregisterMotionSensor()
@@ -357,6 +394,45 @@ class LocationTrackingService : Service() {
                 stopGraceJob = null
             }
         }
+        if (isCurrentTripAutoDetected) {
+            checkIdleWatchdogLocked(locations)
+        }
+    }
+
+    /**
+     * Must be called while holding ingestionMutex, only for an auto-detected
+     * trip. Independent backup for AUTO_STOP_GRACE_MS's AR-driven path (see
+     * class doc comment): tracks the most recent fix that cleared
+     * IDLE_SPEED_THRESHOLD_MPS, and if GPS hasn't shown that much movement
+     * for IDLE_WATCHDOG_MS, ends the trip using that last-moving fix's time
+     * as the end time — the same "back-date to real activity" reasoning
+     * finalizeTrip's endTimeOverride already uses for the AR stop-grace path.
+     */
+    private suspend fun checkIdleWatchdogLocked(locations: List<Location>) {
+        var latestFixTimeMs = 0L
+        for (location in locations) {
+            if (!location.hasSpeed()) continue
+            latestFixTimeMs = location.time
+            if (location.speed >= IDLE_SPEED_THRESHOLD_MPS) {
+                lastMovingFixTimestampMs = location.time
+                idleSinceMs = null
+            } else if (idleSinceMs == null) {
+                idleSinceMs = location.time
+            }
+        }
+        val since = idleSinceMs ?: return
+        if (latestFixTimeMs == 0L || latestFixTimeMs - since < IDLE_WATCHDOG_MS) return
+
+        tripStateMutex.withLock {
+            // Re-check under the lock: motion may have resumed (cancelling
+            // this via the block above on a later, concurrently-processed
+            // batch) or the trip may have already ended some other way.
+            if (activeTripId != null && isCurrentTripAutoDetected) {
+                stopGraceJob?.cancel()
+                stopGraceJob = null
+                finalizeTrip(endTimeOverride = lastMovingFixTimestampMs)
+            }
+        }
     }
 
     /** Must be called while holding ingestionMutex. */
@@ -392,6 +468,8 @@ class LocationTrackingService : Service() {
             isCurrentTripAutoDetected = true
             currentTripDistance = 0.0
             currentTripMaxSpeed = 0.0
+            idleSinceMs = null
+            lastMovingFixTimestampMs = trip.startTimeEpochMs
             trip.id
         }
 
