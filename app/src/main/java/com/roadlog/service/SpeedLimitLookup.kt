@@ -3,6 +3,7 @@ package com.roadlog.service
 import com.roadlog.data.LocationPoint
 import com.roadlog.util.DistanceUtils
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.OutputStreamWriter
@@ -37,6 +38,14 @@ object SpeedLimitLookup {
 
     private const val CONNECT_TIMEOUT_MS = 15_000
     private const val READ_TIMEOUT_MS = 25_000
+
+    // Overpass's public instance is free and best-effort, and observed in
+    // practice to intermittently reject an otherwise-normal request outright
+    // (a transient HTTP error) even with a proper User-Agent set, while a
+    // near-identical request moments later succeeds — a single retry after
+    // a short delay clears most of these without the user needing to
+    // manually reopen the trip a second time.
+    private const val RETRY_DELAY_MS = 3_000L
 
     private data class RoadSegment(
         val startLat: Double, val startLon: Double,
@@ -85,7 +94,7 @@ object SpeedLimitLookup {
         maxLon += BBOX_PADDING_DEG
 
         val query = "[out:json][timeout:20];way[\"maxspeed\"]($minLat,$minLon,$maxLat,$maxLon);out geom;"
-        val (segments, taggedWayCount) = parseSegments(postOverpassQuery(query))
+        val (segments, taggedWayCount) = parseSegments(postOverpassQueryWithRetry(query))
         if (segments.isEmpty()) return@withContext LookupResult(emptyMap(), taggedWayCount, 0)
 
         val result = mutableMapOf<Long, Float>()
@@ -94,6 +103,14 @@ object SpeedLimitLookup {
             result[point.id] = match.limitMps
         }
         LookupResult(result, taggedWayCount, segments.size)
+    }
+
+    /** One retry after RETRY_DELAY_MS on any failure — see the constant's doc comment for why. */
+    private suspend fun postOverpassQueryWithRetry(query: String): String = try {
+        postOverpassQuery(query)
+    } catch (e: Exception) {
+        delay(RETRY_DELAY_MS)
+        postOverpassQuery(query)
     }
 
     private fun postOverpassQuery(query: String): String {
