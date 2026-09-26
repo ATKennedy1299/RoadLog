@@ -45,6 +45,7 @@ import com.roadlog.ui.theme.AccentGreen
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
 import com.roadlog.util.DistanceUtils
+import com.roadlog.util.TripEvent
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -78,6 +79,7 @@ fun TripReplayScreen(
     val playbackSpeed by viewModel.playbackSpeed.collectAsStateWithLifecycle()
     val progress by viewModel.progress.collectAsStateWithLifecycle()
     val currentFrame by viewModel.currentFrame.collectAsStateWithLifecycle()
+    val tripEvents by viewModel.tripEvents.collectAsStateWithLifecycle()
 
     Column(
         modifier = Modifier
@@ -110,6 +112,7 @@ fun TripReplayScreen(
         } else {
             ReplayMap(
                 locationPoints = points,
+                events = tripEvents,
                 frame = currentFrame,
                 unit = unit,
                 onSeek = viewModel::seekTo,
@@ -138,6 +141,7 @@ fun TripReplayScreen(
 @Composable
 private fun ReplayMap(
     locationPoints: List<LocationPoint>,
+    events: List<TripEvent>,
     frame: ReplayFrame?,
     unit: DistanceUnit,
     onSeek: (Float) -> Unit,
@@ -145,6 +149,9 @@ private fun ReplayMap(
 ) {
     val routePoints = remember(locationPoints) {
         locationPoints.map { RoutePoint(LatLng(it.latitude, it.longitude), it.gpsSpeedMps, it.startsNewSegment) }
+    }
+    val routeEventMarkers = remember(events) {
+        events.map { RouteEventMarker(LatLng(it.latitude, it.longitude), it.type) }
     }
 
     Box(modifier = modifier) {
@@ -159,6 +166,7 @@ private fun ReplayMap(
 
         RouteMapView(
             points = routePoints,
+            events = routeEventMarkers,
             modifier = Modifier.fillMaxSize(),
             autoFrameCamera = false, // replay owns the camera itself (follow mode below)
             onMapReady = { readyMap ->

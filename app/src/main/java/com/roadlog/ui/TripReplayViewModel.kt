@@ -7,6 +7,8 @@ import com.roadlog.data.LocationPoint
 import com.roadlog.data.SpeedSource
 import com.roadlog.data.TripRepository
 import com.roadlog.data.UnitsRepository
+import com.roadlog.util.TripEvent
+import com.roadlog.util.TripEventAnalyzer
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,6 +16,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -39,6 +42,11 @@ class TripReplayViewModel(
 
     private val _points = MutableStateFlow<List<LocationPoint>>(emptyList())
     val points: StateFlow<List<LocationPoint>> = _points.asStateFlow()
+
+    /** Same dots shown on Trip Detail's static map (see TripEventAnalyzer), so replay and detail always agree. */
+    val tripEvents: StateFlow<List<TripEvent>> = points
+        .map { TripEventAnalyzer.detectEvents(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
