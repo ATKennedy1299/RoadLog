@@ -41,6 +41,15 @@ object TripEventAnalyzer {
     // ordinary GPS noise or slight speed-limit/road-matching slop.
     private const val SPEEDING_MARGIN_MPS = 2.24f // 5 mph in m/s
 
+    // Most non-major roads (rural backroads, minor residential streets)
+    // simply have no maxspeed tag in OSM at all — common statutory default
+    // for an unposted road in most US states. Used only to decide whether a
+    // stretch counts as speeding; never shown as an actual posted limit
+    // (see ReplayFrame.speedLimitMps / SpeedLimitSign, which only ever
+    // display a real matched tag) — this is an assumption for detection,
+    // not a claim that a sign exists there.
+    private const val DEFAULT_UNTAGGED_SPEED_LIMIT_MPS = 24.59f // 55 mph
+
     /**
      * [points] must already be accepted (non-filtered) and ordered by time —
      * exactly what TripRepository.getRoutePoints returns. A gap point
@@ -83,8 +92,8 @@ object TripEventAnalyzer {
                 }
             }
 
-            val limitMps = curr.speedLimitMps
-            val isSpeeding = limitMps != null && currSpeed != null && currSpeed > limitMps + SPEEDING_MARGIN_MPS
+            val effectiveLimitMps = curr.speedLimitMps ?: DEFAULT_UNTAGGED_SPEED_LIMIT_MPS
+            val isSpeeding = currSpeed != null && currSpeed > effectiveLimitMps + SPEEDING_MARGIN_MPS
             if (isSpeeding && !wasSpeeding) {
                 events += TripEvent(TripEventType.SPEEDING, curr.latitude, curr.longitude, curr.timestampEpochMs)
             }
