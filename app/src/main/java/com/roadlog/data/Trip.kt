@@ -30,5 +30,12 @@ data class Trip(
     // Temporary diagnostic instrumentation for RideMotionClassifier, shown on
     // Trip Detail behind a "DEBUG" label — remove once its thresholds are
     // validated against real rides and it's trusted to run silently.
-    val motionDebugInfo: String? = null
+    val motionDebugInfo: String? = null,
+    // True once a speed-limit lookup (see SpeedLimitLookup) has been
+    // attempted for this trip's points, successful or not — distinguishes
+    // "no roads matched" from "never tried," so TripDetailViewModel doesn't
+    // re-query Overpass on every screen open. Only flips to true on a
+    // successful Overpass response; left false on network failure so the
+    // next open retries.
+    val speedLimitsFetched: Boolean = false
 )

@@ -37,12 +37,14 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.roadlog.data.SpeedZone
+import com.roadlog.ui.theme.AccentAmber
 import com.roadlog.ui.theme.AccentGreen
 import com.roadlog.ui.theme.AccentRed
 import com.roadlog.ui.theme.SpeedZoneOrange
 import com.roadlog.ui.theme.SpeedZoneYellow
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
+import com.roadlog.util.TripEventType
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.geometry.LatLngBounds
@@ -93,6 +95,9 @@ private const val END_PIN_IMAGE_ID = "roadlog-end-pin-icon"
 private const val PIN_WIDTH_DP = 26f
 private const val PIN_HEIGHT_DP = 34f
 private const val CAMERA_PADDING_PX = 64
+private const val EVENT_SOURCE_ID = "roadlog-event-source"
+private const val EVENT_LAYER_ID = "roadlog-event-layer"
+private const val EVENT_TYPE_PROPERTY = "eventType"
 
 enum class MapType { STREET, SATELLITE }
 
@@ -103,6 +108,9 @@ enum class MapType { STREET, SATELLITE }
  * line across ground that was never actually recorded.
  */
 data class RoutePoint(val latLng: LatLng, val speedMps: Float?, val startsNewSegment: Boolean = false)
+
+/** A hard-accel/braking or speeding dot (see TripEventAnalyzer) to overlay on the route. */
+data class RouteEventMarker(val latLng: LatLng, val type: TripEventType)
 
 /**
  * Renders a route as a polyline colored by recorded speed (see [SpeedZone]),
@@ -122,6 +130,7 @@ fun RouteMapView(
     points: List<RoutePoint>,
     modifier: Modifier = Modifier,
     autoFrameCamera: Boolean = true,
+    events: List<RouteEventMarker> = emptyList(),
     onMapReady: (MapLibreMap) -> Unit = {}
 ) {
     if (points.isEmpty()) {
@@ -179,6 +188,13 @@ fun RouteMapView(
             red = AccentRed.toArgb()
         )
     }
+    val eventColors = remember {
+        EventColors(
+            hardAccel = AccentGreen.toArgb(),
+            hardBrake = AccentRed.toArgb(),
+            speeding = AccentAmber.toArgb()
+        )
+    }
     var map by remember { mutableStateOf<MapLibreMap?>(null) }
     var reportedReady by remember { mutableStateOf(false) }
     var mapType by remember { mutableStateOf(MapType.SATELLITE) }
@@ -205,9 +221,10 @@ fun RouteMapView(
         // route from scratch every frame.
         val currentMap = map
         if (currentMap != null) {
-            LaunchedEffect(currentMap, mapType, points) {
+            LaunchedEffect(currentMap, mapType, points, events) {
                 currentMap.setStyle(styleBuilderFor(mapType)) { style ->
                     drawRoute(style, points, zoneColors)
+                    drawEventMarkers(style, events, eventColors)
                     if (autoFrameCamera) {
                         frameCamera(currentMap, points)
                     }
@@ -301,6 +318,8 @@ private data class ZoneColors(val normal: Int, val yellow: Int, val orange: Int,
         SpeedZone.RED -> red
     }
 }
+
+private data class EventColors(val hardAccel: Int, val hardBrake: Int, val speeding: Int)
 
 private data class ColoredSegment(val zone: SpeedZone, val points: List<LatLng>)
 
@@ -462,6 +481,33 @@ private fun zoneColorExpression(zoneColors: ZoneColors): Expression {
         *stops
     )
 }
+
+/** Small color-coded dots overlaid on the route for hard-accel/braking and speeding events (see TripEventAnalyzer). */
+private fun drawEventMarkers(style: Style, events: List<RouteEventMarker>, eventColors: EventColors) {
+    if (events.isEmpty()) return
+    val features = events.map { marker ->
+        Feature.fromGeometry(Point.fromLngLat(marker.latLng.longitude, marker.latLng.latitude)).apply {
+            addStringProperty(EVENT_TYPE_PROPERTY, marker.type.name)
+        }
+    }
+    style.addSource(GeoJsonSource(EVENT_SOURCE_ID, FeatureCollection.fromFeatures(features)))
+    style.addLayer(
+        CircleLayer(EVENT_LAYER_ID, EVENT_SOURCE_ID).withProperties(
+            PropertyFactory.circleRadius(6f),
+            PropertyFactory.circleColor(eventColorExpression(eventColors)),
+            PropertyFactory.circleStrokeWidth(1.5f),
+            PropertyFactory.circleStrokeColor(android.graphics.Color.BLACK)
+        )
+    )
+}
+
+private fun eventColorExpression(eventColors: EventColors): Expression = Expression.match(
+    Expression.get(EVENT_TYPE_PROPERTY),
+    Expression.color(android.graphics.Color.WHITE), // fallback; should never actually show
+    Expression.stop(TripEventType.HARD_ACCEL.name, Expression.color(eventColors.hardAccel)),
+    Expression.stop(TripEventType.HARD_BRAKE.name, Expression.color(eventColors.hardBrake)),
+    Expression.stop(TripEventType.SPEEDING.name, Expression.color(eventColors.speeding))
+)
 
 private fun frameCamera(map: MapLibreMap, points: List<RoutePoint>) {
     if (points.size < 2) {

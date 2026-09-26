@@ -9,11 +9,14 @@ import com.roadlog.data.TripRepository
 import com.roadlog.data.TripStatus
 import com.roadlog.data.UnitsRepository
 import com.roadlog.data.VehicleProfile
+import com.roadlog.util.TripEvent
+import com.roadlog.util.TripEventAnalyzer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -50,15 +53,35 @@ class TripDetailViewModel(
         onlyMatch.takeIf { it.id != currentTrip.vehicleProfileId }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    // Loaded once: a completed trip's points never change, so this doesn't
-    // need to be a reactive Flow like the fields above.
+    // Loaded once: a completed trip's points never change (aside from the
+    // speed-limit enrichment below), so this doesn't need to be a reactive
+    // Flow like the fields above.
     private val _routePoints = MutableStateFlow<List<LocationPoint>>(emptyList())
     val routePoints: StateFlow<List<LocationPoint>> = _routePoints.asStateFlow()
+
+    /** Hard-accel/braking and speeding dots derived from the current route points — see TripEventAnalyzer. */
+    val tripEvents: StateFlow<List<TripEvent>> = routePoints
+        .map { TripEventAnalyzer.detectEvents(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Guards enrichSpeedLimitsIfNeeded() so it's only kicked off once per
+    // ViewModel instance — trip's Flow can re-emit for unrelated reasons
+    // (e.g. changeVehicle()), and there's no reason to retry mid-session
+    // just because something else about the trip changed.
+    private var speedLimitEnrichmentStarted = false
 
     init {
         viewModelScope.launch {
             trip.collect { current ->
                 _vehicleProfile.value = current?.let { repository.getVehicleProfile(it.vehicleProfileId) }
+                if (current != null && current.status == TripStatus.COMPLETED && !speedLimitEnrichmentStarted) {
+                    speedLimitEnrichmentStarted = true
+                    // Best-effort: no network, or Overpass being unavailable,
+                    // just leaves speeding events out of this view — the
+                    // trip stays unmarked so a later open retries.
+                    runCatching { repository.enrichSpeedLimitsIfNeeded(tripId) }
+                        .onSuccess { _routePoints.value = repository.getRoutePoints(tripId) }
+                }
             }
         }
         viewModelScope.launch {

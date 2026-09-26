@@ -40,6 +40,8 @@ import com.roadlog.ui.theme.AccentGreen
 import com.roadlog.ui.theme.AccentRed
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
+import com.roadlog.util.TripEvent
+import com.roadlog.util.TripEventType
 import org.maplibre.android.geometry.LatLng
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -59,6 +61,10 @@ fun TripDetailScreen(
     val routePoints by viewModel.routePoints.collectAsStateWithLifecycle()
     val routeMapPoints = remember(routePoints) {
         routePoints.map { RoutePoint(LatLng(it.latitude, it.longitude), it.gpsSpeedMps, it.startsNewSegment) }
+    }
+    val tripEvents by viewModel.tripEvents.collectAsStateWithLifecycle()
+    val routeEventMarkers = remember(tripEvents) {
+        tripEvents.map { RouteEventMarker(LatLng(it.latitude, it.longitude), it.type) }
     }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var suggestionDismissed by remember(trip?.id) { mutableStateOf(false) }
@@ -93,6 +99,7 @@ fun TripDetailScreen(
         } else {
             RouteMapView(
                 points = routeMapPoints,
+                events = routeEventMarkers,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(220.dp)
@@ -110,6 +117,8 @@ fun TripDetailScreen(
                 color = TextSecondary,
                 modifier = Modifier.padding(top = 6.dp)
             )
+            Spacer(Modifier.height(20.dp))
+            EventStats(tripEvents)
             Spacer(Modifier.height(20.dp))
             TripStats(
                 trip = currentTrip,
@@ -219,6 +228,41 @@ private fun TripStats(
             )
             StatText(label = "GPS POINTS", value = trip.pointCount.toString())
         }
+    }
+}
+
+/**
+ * Per-trip counts for the dots drawn on the map above (see
+ * TripEventAnalyzer) — each label doubles as the map's legend, using the
+ * same colored "●" glyph convention the app already uses instead of icons.
+ */
+@Composable
+private fun EventStats(events: List<TripEvent>) {
+    val hardAccelCount = events.count { it.type == TripEventType.HARD_ACCEL }
+    val hardBrakeCount = events.count { it.type == TripEventType.HARD_BRAKE }
+    val speedingCount = events.count { it.type == TripEventType.SPEEDING }
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceRaised, RoundedCornerShape(16.dp))
+            .padding(20.dp),
+        horizontalArrangement = Arrangement.SpaceBetween
+    ) {
+        EventStatItem(color = AccentGreen, label = "HARD ACCEL", count = hardAccelCount)
+        EventStatItem(color = AccentRed, label = "HARD BRAKE", count = hardBrakeCount)
+        EventStatItem(color = AccentAmber, label = "SPEEDING", count = speedingCount)
+    }
+}
+
+@Composable
+private fun EventStatItem(color: Color, label: String, count: Int) {
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(text = "● ", color = color, style = MaterialTheme.typography.labelSmall)
+            Text(text = label, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+        }
+        Text(text = count.toString(), style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
     }
 }
 

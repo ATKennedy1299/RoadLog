@@ -3,6 +3,7 @@ package com.roadlog.data
 import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -39,4 +40,15 @@ interface LocationPointDao {
 
     @Query("SELECT COUNT(*) FROM location_points WHERE tripId = :tripId AND isFiltered = 0")
     suspend fun getAcceptedPointCount(tripId: Long): Int
+
+    @Query("UPDATE location_points SET speedLimitMps = :limitMps WHERE id = :id")
+    suspend fun updateSpeedLimit(id: Long, limitMps: Float)
+
+    /** Applies a batch of point-id -> speed-limit matches from SpeedLimitLookup as one transaction. */
+    @Transaction
+    suspend fun updateSpeedLimits(limitsByPointId: Map<Long, Float>) {
+        for ((id, limitMps) in limitsByPointId) {
+            updateSpeedLimit(id, limitMps)
+        }
+    }
 }
