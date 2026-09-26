@@ -104,6 +104,10 @@ object SpeedLimitLookup {
             connection.connectTimeout = CONNECT_TIMEOUT_MS
             connection.readTimeout = READ_TIMEOUT_MS
             connection.setRequestProperty("Content-Type", "application/x-www-form-urlencoded")
+            // Overpass's frontend rejects requests with HttpURLConnection's
+            // default Java User-Agent (HTTP 406) — its own usage policy asks
+            // for a descriptive one identifying the app anyway.
+            connection.setRequestProperty("User-Agent", "RoadLog-Android/1.0 (github.com/ATKennedy1299/RoadLog)")
             OutputStreamWriter(connection.outputStream).use { writer ->
                 writer.write("data=" + URLEncoder.encode(query, "UTF-8"))
             }
