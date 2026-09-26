@@ -28,13 +28,32 @@ object SpeedLimitLookup {
 
     private const val OVERPASS_URL = "https://overpass-api.de/api/interpreter"
 
-    // Pad the trip's bounding box so roads just outside the recorded route
-    // (e.g. the far side of an intersection) are still considered.
-    private const val BBOX_PADDING_DEG = 0.01 // roughly 1km at mid latitudes
-
     // A fix more than this far from the nearest tagged road isn't
     // confidently "on" it — leave its limit unknown rather than guess.
     private const val MAX_MATCH_DISTANCE_METERS = 25.0
+
+    // Overpass's `around` filter, not a bounding box, drives the query (see
+    // buildAroundQuery) — this is its search radius, a little past
+    // MAX_MATCH_DISTANCE_METERS so a way right at that cutoff is never
+    // excluded from the results before our own distance check even runs.
+    private const val AROUND_RADIUS_METERS = 35.0
+
+    // Consecutive query points closer together than this add no coverage —
+    // a road can't appear and disappear within less than this distance —
+    // so a trip's raw ~1-2s GPS cadence (often just a few meters apart) is
+    // thinned to about one point per this many meters before querying.
+    private const val MIN_SAMPLE_SPACING_METERS = 50.0
+
+    // Hard cap on how many coordinates go into one `around` query,
+    // regardless of trip length. A long highway drive could otherwise
+    // generate a query large enough to make Overpass itself slow or time
+    // out (observed in practice as an HTTP 504) — a single bounding box
+    // over the trip's full extent was worse, pulling in every tagged road
+    // across a potentially huge area far from the actual route. Thinned
+    // evenly across the trip (see sampleForQuery) rather than just
+    // truncating the tail, so a capped trip still gets coverage start to
+    // finish instead of losing its second half.
+    private const val MAX_QUERY_POINTS = 300
 
     private const val CONNECT_TIMEOUT_MS = 15_000
     private const val READ_TIMEOUT_MS = 25_000
@@ -78,22 +97,7 @@ object SpeedLimitLookup {
     suspend fun lookup(points: List<LocationPoint>): LookupResult = withContext(Dispatchers.IO) {
         if (points.isEmpty()) return@withContext LookupResult(emptyMap(), 0, 0)
 
-        var minLat = points[0].latitude
-        var maxLat = points[0].latitude
-        var minLon = points[0].longitude
-        var maxLon = points[0].longitude
-        for (point in points) {
-            if (point.latitude < minLat) minLat = point.latitude
-            if (point.latitude > maxLat) maxLat = point.latitude
-            if (point.longitude < minLon) minLon = point.longitude
-            if (point.longitude > maxLon) maxLon = point.longitude
-        }
-        minLat -= BBOX_PADDING_DEG
-        maxLat += BBOX_PADDING_DEG
-        minLon -= BBOX_PADDING_DEG
-        maxLon += BBOX_PADDING_DEG
-
-        val query = "[out:json][timeout:20];way[\"maxspeed\"]($minLat,$minLon,$maxLat,$maxLon);out geom;"
+        val query = buildAroundQuery(sampleForQuery(points))
         val (segments, taggedWayCount) = parseSegments(postOverpassQueryWithRetry(query))
         if (segments.isEmpty()) return@withContext LookupResult(emptyMap(), taggedWayCount, 0)
 
@@ -103,6 +107,27 @@ object SpeedLimitLookup {
             result[point.id] = match.limitMps
         }
         LookupResult(result, taggedWayCount, segments.size)
+    }
+
+    /** Thins [points] to roughly one per MIN_SAMPLE_SPACING_METERS, then evenly caps at MAX_QUERY_POINTS. */
+    private fun sampleForQuery(points: List<LocationPoint>): List<LocationPoint> {
+        val spaced = mutableListOf(points.first())
+        for (point in points) {
+            val last = spaced.last()
+            val distance = DistanceUtils.haversineMeters(last.latitude, last.longitude, point.latitude, point.longitude)
+            if (distance >= MIN_SAMPLE_SPACING_METERS) spaced += point
+        }
+        if (spaced.last() !== points.last()) spaced += points.last()
+
+        if (spaced.size <= MAX_QUERY_POINTS) return spaced
+        val step = spaced.size.toDouble() / MAX_QUERY_POINTS
+        return (0 until MAX_QUERY_POINTS).map { spaced[(it * step).toInt()] }
+    }
+
+    /** Only maxspeed-tagged ways within AROUND_RADIUS_METERS of any of [points] — never a bounding box over the whole trip. */
+    private fun buildAroundQuery(points: List<LocationPoint>): String {
+        val coords = points.joinToString(",") { "${it.latitude},${it.longitude}" }
+        return "[out:json][timeout:20];way[\"maxspeed\"](around:$AROUND_RADIUS_METERS,$coords);out geom;"
     }
 
     /** One retry after RETRY_DELAY_MS on any failure — see the constant's doc comment for why. */
