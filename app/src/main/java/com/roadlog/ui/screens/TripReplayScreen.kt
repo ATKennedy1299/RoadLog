@@ -1,6 +1,6 @@
 package com.roadlog.ui.screens
 
-import android.graphics.PointF
+import android.graphics.RectF
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -160,23 +160,29 @@ private fun ReplayMap(
     val routeEventMarkers = remember(events) {
         events.map { RouteEventMarker(LatLng(it.latitude, it.longitude), it.type) }
     }
+    // A tap can land a few pixels off an event dot's exact center and still
+    // clearly mean "that dot" — without this tolerance, hitting the dot vs.
+    // seeking playback there came down to near-pixel-perfect precision.
+    val tapToleranceRadiusPx = with(LocalDensity.current) { 20.dp.toPx() }
 
     Box(modifier = modifier) {
         var map by remember { mutableStateOf<MapLibreMap?>(null) }
         var isFollowing by remember { mutableStateOf(true) }
         var initialCameraSet by remember { mutableStateOf(false) }
-        // Bumped by the camera-move listener so the speed bubble's screen
-        // position (below) recomputes on every pan/zoom, not just when the
-        // playback frame changes — otherwise panning while paused leaves it
-        // stuck over the marker's old position until playback resumes.
+        // Bumped by the camera-move listener so the speed bubble's and event
+        // popup's screen positions (below) recompute on every pan/zoom, not
+        // just when the playback frame or selection changes — otherwise
+        // panning leaves them stuck at their old screen position.
         var cameraRevision by remember { mutableStateOf(0) }
 
-        // Which event dot (if any) is showing its label popup, and where
-        // on screen to anchor it. Cleared by resuming playback (below) or
-        // by tapping anywhere else on the map — never auto-dismisses on a
-        // timer, since the user asked for it to stay until one of those.
+        // Which event dot (if any) is showing its label popup, anchored by
+        // its real geo position (not the raw tap point) so it tracks the dot
+        // correctly if the map is panned afterward. Cleared by resuming
+        // playback (below) or by tapping anywhere else on the map — never
+        // auto-dismisses on a timer, since the user asked for it to stay
+        // until one of those.
         var selectedEvent by remember { mutableStateOf<TripEventType?>(null) }
-        var selectedEventScreenPoint by remember { mutableStateOf<PointF?>(null) }
+        var selectedEventLatLng by remember { mutableStateOf<LatLng?>(null) }
         LaunchedEffect(isPlaying) {
             if (isPlaying) selectedEvent = null
         }
@@ -196,13 +202,23 @@ private fun ReplayMap(
                 readyMap.addOnCameraMoveListener { cameraRevision++ }
                 readyMap.addOnMapClickListener { tapped ->
                     val screenPoint = readyMap.projection.toScreenLocation(tapped)
-                    val hitType = readyMap.queryRenderedFeatures(screenPoint, EVENT_LAYER_ID)
-                        .firstOrNull()
+                    val tapRect = RectF(
+                        screenPoint.x - tapToleranceRadiusPx,
+                        screenPoint.y - tapToleranceRadiusPx,
+                        screenPoint.x + tapToleranceRadiusPx,
+                        screenPoint.y + tapToleranceRadiusPx
+                    )
+                    // A tap that lands anywhere near a dot means the dot,
+                    // full stop — it never also seeks, so there's no toss-up
+                    // between the two behaviors.
+                    val hitFeature = readyMap.queryRenderedFeatures(tapRect, EVENT_LAYER_ID).firstOrNull()
+                    val hitType = hitFeature
                         ?.getStringProperty(EVENT_TYPE_PROPERTY)
                         ?.let { runCatching { TripEventType.valueOf(it) }.getOrNull() }
-                    if (hitType != null) {
+                    val hitPoint = hitFeature?.geometry() as? Point
+                    if (hitType != null && hitPoint != null) {
                         selectedEvent = hitType
-                        selectedEventScreenPoint = screenPoint
+                        selectedEventLatLng = LatLng(hitPoint.latitude(), hitPoint.longitude())
                     } else {
                         selectedEvent = null
                         seekToNearestPoint(locationPoints, tapped, onSeek)
@@ -255,10 +271,22 @@ private fun ReplayMap(
 
             // Raw per-point GPS speed can jump between fixes; smooth what's
             // displayed so it reads as one settling number instead of a
-            // flicker of several values in quick succession.
+            // flicker of several values in quick succession. That smoothing
+            // only makes sense across the small deltas of consecutive
+            // playback ticks — applied to a scrub/seek jump of possibly
+            // several miles, a single 25%-of-the-way step left the display
+            // showing a mostly-stale value (e.g. 21 mph right after jumping
+            // to a point where the real speed was 70+) until enough further
+            // ticks caught it up. Snap immediately whenever not actively
+            // playing (covers the initial frame, seeking, and scrubbing)
+            // and only ease during real playback.
             var smoothedSpeedMps by remember { mutableStateOf(frame.speedMps) }
-            LaunchedEffect(frame) {
-                smoothedSpeedMps += (frame.speedMps - smoothedSpeedMps) * SPEED_SMOOTHING_ALPHA
+            LaunchedEffect(frame, isPlaying) {
+                smoothedSpeedMps = if (isPlaying) {
+                    smoothedSpeedMps + (frame.speedMps - smoothedSpeedMps) * SPEED_SMOOTHING_ALPHA
+                } else {
+                    frame.speedMps
+                }
             }
 
             Box(
@@ -295,13 +323,23 @@ private fun ReplayMap(
                 unit = unit,
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(12.dp)
+                    // Extra bottom clearance so this doesn't sit on top of
+                    // MapLibre's own required attribution logo, which also
+                    // renders bottom-start by default.
+                    .padding(start = 12.dp, bottom = 36.dp)
             )
         }
 
         val currentSelectedEvent = selectedEvent
-        val currentSelectedEventScreenPoint = selectedEventScreenPoint
-        if (currentSelectedEvent != null && currentSelectedEventScreenPoint != null) {
+        val currentSelectedEventLatLng = selectedEventLatLng
+        if (currentSelectedEvent != null && currentSelectedEventLatLng != null && currentMap != null) {
+            // Recomputed from the real geo position on every pan/zoom (via
+            // cameraRevision), exactly like the speed bubble above — a
+            // one-time screen-pixel snapshot would drift away from the dot
+            // the moment the camera moved.
+            val eventScreenPoint = remember(currentSelectedEventLatLng, cameraRevision, currentMap) {
+                currentMap.projection.toScreenLocation(currentSelectedEventLatLng)
+            }
             val density = LocalDensity.current
             val popupOffsetXPx = remember(density) { with(density) { (-50).dp.toPx() } }
             val popupOffsetYPx = remember(density) { with(density) { (-50).dp.toPx() } }
@@ -309,8 +347,8 @@ private fun ReplayMap(
                 modifier = Modifier
                     .offset {
                         IntOffset(
-                            (currentSelectedEventScreenPoint.x + popupOffsetXPx).roundToInt(),
-                            (currentSelectedEventScreenPoint.y + popupOffsetYPx).roundToInt()
+                            (eventScreenPoint.x + popupOffsetXPx).roundToInt(),
+                            (eventScreenPoint.y + popupOffsetYPx).roundToInt()
                         )
                     }
                     .background(SurfaceRaised, RoundedCornerShape(10.dp))
