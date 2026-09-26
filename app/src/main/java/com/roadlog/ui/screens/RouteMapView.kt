@@ -96,8 +96,10 @@ private const val PIN_WIDTH_DP = 26f
 private const val PIN_HEIGHT_DP = 34f
 private const val CAMERA_PADDING_PX = 64
 private const val EVENT_SOURCE_ID = "roadlog-event-source"
-private const val EVENT_LAYER_ID = "roadlog-event-layer"
-private const val EVENT_TYPE_PROPERTY = "eventType"
+// internal (not private) so TripReplayScreen can hit-test taps against
+// this layer to distinguish "tapped a dot" from "tapped the map to seek."
+internal const val EVENT_LAYER_ID = "roadlog-event-layer"
+internal const val EVENT_TYPE_PROPERTY = "eventType"
 
 enum class MapType { STREET, SATELLITE }
 

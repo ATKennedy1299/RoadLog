@@ -1,6 +1,8 @@
 package com.roadlog.ui.screens
 
+import android.graphics.PointF
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,11 +43,14 @@ import com.roadlog.data.LocationPoint
 import com.roadlog.data.SpeedSource
 import com.roadlog.ui.ReplayFrame
 import com.roadlog.ui.TripReplayViewModel
+import com.roadlog.ui.theme.AccentAmber
 import com.roadlog.ui.theme.AccentGreen
+import com.roadlog.ui.theme.AccentRed
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
 import com.roadlog.util.DistanceUtils
 import com.roadlog.util.TripEvent
+import com.roadlog.util.TripEventType
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
@@ -115,6 +120,7 @@ fun TripReplayScreen(
                 events = tripEvents,
                 frame = currentFrame,
                 unit = unit,
+                isPlaying = isPlaying,
                 onSeek = viewModel::seekTo,
                 modifier = Modifier
                     .fillMaxWidth()
@@ -144,6 +150,7 @@ private fun ReplayMap(
     events: List<TripEvent>,
     frame: ReplayFrame?,
     unit: DistanceUnit,
+    isPlaying: Boolean,
     onSeek: (Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -164,6 +171,16 @@ private fun ReplayMap(
         // stuck over the marker's old position until playback resumes.
         var cameraRevision by remember { mutableStateOf(0) }
 
+        // Which event dot (if any) is showing its label popup, and where
+        // on screen to anchor it. Cleared by resuming playback (below) or
+        // by tapping anywhere else on the map — never auto-dismisses on a
+        // timer, since the user asked for it to stay until one of those.
+        var selectedEvent by remember { mutableStateOf<TripEventType?>(null) }
+        var selectedEventScreenPoint by remember { mutableStateOf<PointF?>(null) }
+        LaunchedEffect(isPlaying) {
+            if (isPlaying) selectedEvent = null
+        }
+
         RouteMapView(
             points = routePoints,
             events = routeEventMarkers,
@@ -178,7 +195,18 @@ private fun ReplayMap(
                 }
                 readyMap.addOnCameraMoveListener { cameraRevision++ }
                 readyMap.addOnMapClickListener { tapped ->
-                    seekToNearestPoint(locationPoints, tapped, onSeek)
+                    val screenPoint = readyMap.projection.toScreenLocation(tapped)
+                    val hitType = readyMap.queryRenderedFeatures(screenPoint, EVENT_LAYER_ID)
+                        .firstOrNull()
+                        ?.getStringProperty(EVENT_TYPE_PROPERTY)
+                        ?.let { runCatching { TripEventType.valueOf(it) }.getOrNull() }
+                    if (hitType != null) {
+                        selectedEvent = hitType
+                        selectedEventScreenPoint = screenPoint
+                    } else {
+                        selectedEvent = null
+                        seekToNearestPoint(locationPoints, tapped, onSeek)
+                    }
                     true
                 }
             }
@@ -260,6 +288,43 @@ private fun ReplayMap(
             }
         }
 
+        val speedLimitMps = frame?.speedLimitMps
+        if (speedLimitMps != null) {
+            SpeedLimitSign(
+                limitMps = speedLimitMps,
+                unit = unit,
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(12.dp)
+            )
+        }
+
+        val currentSelectedEvent = selectedEvent
+        val currentSelectedEventScreenPoint = selectedEventScreenPoint
+        if (currentSelectedEvent != null && currentSelectedEventScreenPoint != null) {
+            val density = LocalDensity.current
+            val popupOffsetXPx = remember(density) { with(density) { (-50).dp.toPx() } }
+            val popupOffsetYPx = remember(density) { with(density) { (-50).dp.toPx() } }
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            (currentSelectedEventScreenPoint.x + popupOffsetXPx).roundToInt(),
+                            (currentSelectedEventScreenPoint.y + popupOffsetYPx).roundToInt()
+                        )
+                    }
+                    .background(SurfaceRaised, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    text = currentSelectedEvent.displayLabel(),
+                    color = currentSelectedEvent.displayColor(),
+                    fontWeight = FontWeight.Bold,
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
+        }
+
         if (!isFollowing) {
             Text(
                 text = "RECENTER",
@@ -279,6 +344,56 @@ private fun ReplayMap(
 
 private fun SpeedSource.displayLabel(): String = when (this) {
     SpeedSource.GPS_RAW -> "GPS"
+}
+
+private fun TripEventType.displayLabel(): String = when (this) {
+    TripEventType.HARD_ACCEL -> "HARD ACCEL"
+    TripEventType.HARD_BRAKE -> "HARD BRAKE"
+    TripEventType.SPEEDING -> "SPEEDING"
+}
+
+private fun TripEventType.displayColor(): Color = when (this) {
+    TripEventType.HARD_ACCEL -> AccentGreen
+    TripEventType.HARD_BRAKE -> AccentRed
+    TripEventType.SPEEDING -> AccentAmber
+}
+
+/**
+ * A US-style speed limit sign — white face, black border/text — fixed at
+ * the map's bottom-left, showing the posted limit at the replay marker's
+ * current position (see ReplayFrame.speedLimitMps) and updating as it
+ * changes along the route. Hidden entirely rather than showing a
+ * placeholder when no nearby road was matched, matching the "if available"
+ * behavior everywhere else speed limits appear.
+ */
+@Composable
+private fun SpeedLimitSign(limitMps: Float, unit: DistanceUnit, modifier: Modifier = Modifier) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier
+            .background(Color.White, RoundedCornerShape(8.dp))
+            .border(3.dp, Color.Black, RoundedCornerShape(8.dp))
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+    ) {
+        Text(
+            text = "SPEED",
+            color = Color.Black,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.labelSmall
+        )
+        Text(
+            text = "LIMIT",
+            color = Color.Black,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.labelSmall
+        )
+        Text(
+            text = unit.mpsToSpeed(limitMps.toDouble()).roundToInt().toString(),
+            color = Color.Black,
+            fontWeight = FontWeight.Bold,
+            style = MaterialTheme.typography.headlineMedium
+        )
+    }
 }
 
 /**
