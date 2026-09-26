@@ -37,5 +37,12 @@ data class Trip(
     // re-query Overpass on every screen open. Only flips to true on a
     // successful Overpass response; left false on network failure so the
     // next open retries.
-    val speedLimitsFetched: Boolean = false
+    val speedLimitsFetched: Boolean = false,
+    // Temporary diagnostic instrumentation for SpeedLimitLookup, shown on
+    // Trip Detail behind a "DEBUG" label alongside motionDebugInfo — "0
+    // speeding events" is otherwise indistinguishable from "no roads near
+    // this trip are maxspeed-tagged in OSM," "roads were tagged but no point
+    // matched within range," and "the Overpass request itself failed."
+    // Remove once real-world coverage/matching is validated.
+    val speedLimitDebugInfo: String? = null
 )

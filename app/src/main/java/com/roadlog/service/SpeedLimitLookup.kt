@@ -45,15 +45,29 @@ object SpeedLimitLookup {
     )
 
     /**
-     * Returns a map of [LocationPoint.id] -> matched speed limit (m/s) for
-     * whichever of [points] fall within [MAX_MATCH_DISTANCE_METERS] of a
-     * tagged road. Points with no nearby match, or a maxspeed value that
-     * doesn't parse (e.g. "national", "walk"), are simply left out of the
-     * map rather than guessed at. Throws on network/parsing failure so the
-     * caller can leave the trip unmarked and retry on a later view.
+     * [segmentCount] and [taggedWayCount] exist purely for
+     * Trip.speedLimitDebugInfo — without them, "0 speeding events" is
+     * indistinguishable from "no roads near this trip have a maxspeed tag in
+     * OSM" vs. "roads were tagged, but this trip's points didn't fall within
+     * MAX_MATCH_DISTANCE_METERS of any of them" vs. "the request itself
+     * failed." All three look identical from the UI otherwise.
      */
-    suspend fun lookup(points: List<LocationPoint>): Map<Long, Float> = withContext(Dispatchers.IO) {
-        if (points.isEmpty()) return@withContext emptyMap()
+    data class LookupResult(
+        val limitsByPointId: Map<Long, Float>,
+        val taggedWayCount: Int,
+        val segmentCount: Int
+    )
+
+    /**
+     * Matches whichever of [points] fall within [MAX_MATCH_DISTANCE_METERS]
+     * of a tagged road to that road's posted limit (m/s). Points with no
+     * nearby match, or a maxspeed value that doesn't parse (e.g. "national",
+     * "walk"), are simply left out rather than guessed at. Throws on
+     * network/parsing failure so the caller can leave the trip unmarked and
+     * retry on a later view.
+     */
+    suspend fun lookup(points: List<LocationPoint>): LookupResult = withContext(Dispatchers.IO) {
+        if (points.isEmpty()) return@withContext LookupResult(emptyMap(), 0, 0)
 
         var minLat = points[0].latitude
         var maxLat = points[0].latitude
@@ -71,15 +85,15 @@ object SpeedLimitLookup {
         maxLon += BBOX_PADDING_DEG
 
         val query = "[out:json][timeout:20];way[\"maxspeed\"]($minLat,$minLon,$maxLat,$maxLon);out geom;"
-        val segments = parseSegments(postOverpassQuery(query))
-        if (segments.isEmpty()) return@withContext emptyMap()
+        val (segments, taggedWayCount) = parseSegments(postOverpassQuery(query))
+        if (segments.isEmpty()) return@withContext LookupResult(emptyMap(), taggedWayCount, 0)
 
         val result = mutableMapOf<Long, Float>()
         for (point in points) {
             val match = nearestSegment(point.latitude, point.longitude, segments) ?: continue
             result[point.id] = match.limitMps
         }
-        result
+        LookupResult(result, taggedWayCount, segments.size)
     }
 
     private fun postOverpassQuery(query: String): String {
@@ -102,13 +116,16 @@ object SpeedLimitLookup {
         }
     }
 
-    private fun parseSegments(responseJson: String): List<RoadSegment> {
-        val elements = JSONObject(responseJson).optJSONArray("elements") ?: return emptyList()
+    /** Returns the parsed segments plus how many ways had a maxspeed tag that parsed at all, for debugging. */
+    private fun parseSegments(responseJson: String): Pair<List<RoadSegment>, Int> {
+        val elements = JSONObject(responseJson).optJSONArray("elements") ?: return emptyList<RoadSegment>() to 0
         val segments = mutableListOf<RoadSegment>()
+        var taggedWayCount = 0
         for (i in 0 until elements.length()) {
             val element = elements.getJSONObject(i)
             val tags = element.optJSONObject("tags") ?: continue
             val limitMps = parseMaxSpeed(tags.optString("maxspeed", "")) ?: continue
+            taggedWayCount++
             val geometry = element.optJSONArray("geometry") ?: continue
 
             var prevLat: Double? = null
@@ -127,7 +144,7 @@ object SpeedLimitLookup {
                 prevLon = lon
             }
         }
-        return segments
+        return segments to taggedWayCount
     }
 
     /**

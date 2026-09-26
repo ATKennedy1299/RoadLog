@@ -66,8 +66,15 @@ interface TripDao {
     @Query("UPDATE trips SET vehicleProfileId = :vehicleProfileId WHERE id = :tripId")
     suspend fun updateVehicleProfileId(tripId: Long, vehicleProfileId: Long)
 
-    @Query("UPDATE trips SET speedLimitsFetched = 1 WHERE id = :tripId")
-    suspend fun markSpeedLimitsFetched(tripId: Long)
+    @Query(
+        """
+        UPDATE trips
+        SET speedLimitsFetched = :fetched,
+            speedLimitDebugInfo = :debugInfo
+        WHERE id = :tripId
+        """
+    )
+    suspend fun recordSpeedLimitFetch(tripId: Long, fetched: Boolean, debugInfo: String?)
 
     @Delete
     suspend fun delete(trip: Trip)

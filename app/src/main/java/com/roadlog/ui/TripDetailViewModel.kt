@@ -76,11 +76,13 @@ class TripDetailViewModel(
                 _vehicleProfile.value = current?.let { repository.getVehicleProfile(it.vehicleProfileId) }
                 if (current != null && current.status == TripStatus.COMPLETED && !speedLimitEnrichmentStarted) {
                     speedLimitEnrichmentStarted = true
-                    // Best-effort: no network, or Overpass being unavailable,
-                    // just leaves speeding events out of this view — the
-                    // trip stays unmarked so a later open retries.
-                    runCatching { repository.enrichSpeedLimitsIfNeeded(tripId) }
-                        .onSuccess { _routePoints.value = repository.getRoutePoints(tripId) }
+                    // Best-effort: enrichSpeedLimitsIfNeeded swallows its own
+                    // network/lookup failures (see Trip.speedLimitDebugInfo),
+                    // so no network or Overpass being unavailable just leaves
+                    // speeding events out of this view rather than crashing
+                    // anything here.
+                    repository.enrichSpeedLimitsIfNeeded(tripId)
+                    _routePoints.value = repository.getRoutePoints(tripId)
                 }
             }
         }

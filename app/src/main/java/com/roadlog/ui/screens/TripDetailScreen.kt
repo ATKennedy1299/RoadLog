@@ -141,6 +141,15 @@ fun TripDetailScreen(
                 )
             }
 
+            if (currentTrip.status != TripStatus.ACTIVE && currentTrip.speedLimitDebugInfo != null) {
+                Spacer(Modifier.height(12.dp))
+                Text(
+                    text = "DEBUG (speed limits): ${currentTrip.speedLimitDebugInfo}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextSecondary
+                )
+            }
+
             if (currentTrip.status != TripStatus.ACTIVE && currentTrip.motionDebugInfo != null) {
                 Spacer(Modifier.height(12.dp))
                 Text(
