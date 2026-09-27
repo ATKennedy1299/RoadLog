@@ -40,11 +40,7 @@ data class CumulativeStats(
     val thisWeek: PeriodStats,
     val thisMonth: PeriodStats,
     val thisYear: PeriodStats,
-    val allTime: PeriodStats,
-    // Lifetime totals of time spent at highway/high speeds — see
-    // Trip.time60to100MphMs/time100to130MphMs for how these accumulate.
-    val totalTime60to100MphMs: Long,
-    val totalTime100to130MphMs: Long
+    val allTime: PeriodStats
 ) {
     companion object {
         val EMPTY = CumulativeStats(
@@ -59,9 +55,7 @@ data class CumulativeStats(
             thisWeek = PeriodStats.EMPTY,
             thisMonth = PeriodStats.EMPTY,
             thisYear = PeriodStats.EMPTY,
-            allTime = PeriodStats.EMPTY,
-            totalTime60to100MphMs = 0L,
-            totalTime100to130MphMs = 0L
+            allTime = PeriodStats.EMPTY
         )
     }
 }
@@ -127,8 +121,6 @@ fun computeCumulativeStats(
             tripCount = completed.size,
             totalDistanceMeters = totalDistanceMeters,
             totalDurationMs = totalDurationMs
-        ),
-        totalTime60to100MphMs = completed.sumOf { it.time60to100MphMs },
-        totalTime100to130MphMs = completed.sumOf { it.time100to130MphMs }
+        )
     )
 }

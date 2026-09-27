@@ -30,12 +30,5 @@ data class Trip(
     // Temporary diagnostic instrumentation for RideMotionClassifier, shown on
     // Trip Detail behind a "DEBUG" label — remove once its thresholds are
     // validated against real rides and it's trusted to run silently.
-    val motionDebugInfo: String? = null,
-    // Rolling totals of time spent at highway/high speeds, in ms, updated
-    // incrementally alongside distanceMeters/maxSpeedMps so the Stats screen
-    // never has to re-scan raw GPS points to show them (see CumulativeStats).
-    // Bucketed in mph regardless of the user's chosen display unit, matching
-    // SpeedZone's existing mph-based route-coloring thresholds.
-    val time60to100MphMs: Long = 0,
-    val time100to130MphMs: Long = 0
+    val motionDebugInfo: String? = null
 )

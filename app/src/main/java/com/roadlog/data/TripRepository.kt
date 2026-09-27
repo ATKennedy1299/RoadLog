@@ -23,13 +23,6 @@ class TripRepository(private val db: AppDatabase) {
          * restarted) before a later, unrelated drive can resume it.
          */
         private val STALE_TRIP_THRESHOLD_MS = TimeUnit.HOURS.toMillis(4)
-
-        // Bucket boundaries for Trip.time60to100MphMs/time100to130MphMs, in
-        // m/s — kept in mph terms regardless of the user's display unit,
-        // matching SpeedZone's existing mph-based route-coloring thresholds.
-        private const val MPH_60_IN_MPS = 26.8224
-        private const val MPH_100_IN_MPS = 44.704
-        private const val MPH_130_IN_MPS = 58.1152
     }
 
     fun observeAllTrips(): Flow<List<Trip>> = db.tripDao().observeAllTrips()
@@ -143,26 +136,11 @@ class TripRepository(private val db: AppDatabase) {
             // don't report speed.
             val candidateSpeed = (gpsSpeedMps?.toDouble()) ?: result.impliedSpeedMps ?: 0.0
 
-            // Same gap guard as addedDistance above: a gap-start point has no
-            // real elapsed-driving time back to the last accepted fix, so it
-            // contributes nothing to either high-speed bucket.
-            val addedTimeMs = if (lastAccepted != null && !result.isGapStart) {
-                timestampEpochMs - lastAccepted.timestampEpochMs
-            } else 0L
-            val added60to100MphMs = if (candidateSpeed >= MPH_60_IN_MPS && candidateSpeed < MPH_100_IN_MPS) {
-                addedTimeMs
-            } else 0L
-            val added100to130MphMs = if (candidateSpeed >= MPH_100_IN_MPS && candidateSpeed <= MPH_130_IN_MPS) {
-                addedTimeMs
-            } else 0L
-
             db.tripDao().updateAggregates(
                 tripId = tripId,
                 distanceMeters = trip.distanceMeters + addedDistance,
                 maxSpeedMps = maxOf(trip.maxSpeedMps, candidateSpeed),
-                pointCount = trip.pointCount + 1,
-                time60to100MphMs = trip.time60to100MphMs + added60to100MphMs,
-                time100to130MphMs = trip.time100to130MphMs + added100to130MphMs
+                pointCount = trip.pointCount + 1
             )
         }
     }
