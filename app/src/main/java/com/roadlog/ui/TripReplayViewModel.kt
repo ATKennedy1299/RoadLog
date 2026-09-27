@@ -7,6 +7,8 @@ import com.roadlog.data.LocationPoint
 import com.roadlog.data.SpeedSource
 import com.roadlog.data.TripRepository
 import com.roadlog.data.UnitsRepository
+import com.roadlog.util.TripEvent
+import com.roadlog.util.TripEventAnalyzer
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -14,19 +16,24 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 /**
  * An instant along the replay timeline. [speedSource] is carried through
  * from the underlying LocationPoint rather than assumed, so the UI never
- * has to guess or hardcode where the speed reading came from.
+ * has to guess or hardcode where the speed reading came from. [speedLimitMps]
+ * is null wherever no nearby road was matched (see SpeedLimitLookup) — the
+ * speed-limit sign simply hides itself for that stretch rather than
+ * guessing or showing a stale value.
  */
 data class ReplayFrame(
     val latitude: Double,
     val longitude: Double,
     val speedMps: Double,
-    val speedSource: SpeedSource
+    val speedSource: SpeedSource,
+    val speedLimitMps: Float?
 )
 
 class TripReplayViewModel(
@@ -39,6 +46,11 @@ class TripReplayViewModel(
 
     private val _points = MutableStateFlow<List<LocationPoint>>(emptyList())
     val points: StateFlow<List<LocationPoint>> = _points.asStateFlow()
+
+    /** Same dots shown on Trip Detail's static map (see TripEventAnalyzer), so replay and detail always agree. */
+    val tripEvents: StateFlow<List<TripEvent>> = points
+        .map { TripEventAnalyzer.detectEvents(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _isPlaying = MutableStateFlow(false)
     val isPlaying: StateFlow<Boolean> = _isPlaying.asStateFlow()
@@ -127,7 +139,9 @@ private fun computeFrame(points: List<LocationPoint>, progress: Float): ReplayFr
     val totalDurationMs = points.last().timestampEpochMs - points.first().timestampEpochMs
     if (points.size == 1 || totalDurationMs <= 0L) {
         val only = points.first()
-        return ReplayFrame(only.latitude, only.longitude, only.gpsSpeedMps?.toDouble() ?: 0.0, only.speedSource)
+        return ReplayFrame(
+            only.latitude, only.longitude, only.gpsSpeedMps?.toDouble() ?: 0.0, only.speedSource, only.speedLimitMps
+        )
     }
 
     val startTime = points.first().timestampEpochMs
@@ -153,7 +167,7 @@ private fun computeFrame(points: List<LocationPoint>, progress: Float): ReplayFr
         val holdAtPrev = t < 1.0
         val point = if (holdAtPrev) prev else next
         val speed = if (holdAtPrev) (prev.gpsSpeedMps?.toDouble() ?: 0.0) else (next.gpsSpeedMps?.toDouble() ?: 0.0)
-        return ReplayFrame(point.latitude, point.longitude, speed, point.speedSource)
+        return ReplayFrame(point.latitude, point.longitude, speed, point.speedSource, point.speedLimitMps)
     }
 
     val lat = prev.latitude + (next.latitude - prev.latitude) * t
@@ -162,5 +176,5 @@ private fun computeFrame(points: List<LocationPoint>, progress: Float): ReplayFr
     val nextSpeed = next.gpsSpeedMps?.toDouble() ?: 0.0
     val speed = prevSpeed + (nextSpeed - prevSpeed) * t
 
-    return ReplayFrame(lat, lng, speed, next.speedSource)
+    return ReplayFrame(lat, lng, speed, next.speedSource, next.speedLimitMps)
 }

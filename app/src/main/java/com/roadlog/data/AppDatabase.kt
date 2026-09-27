@@ -17,7 +17,7 @@ import kotlinx.coroutines.launch
 // fallbackToDestructiveMigration() as the fix for that; it wipes the DB.
 @Database(
     entities = [Trip::class, LocationPoint::class, VehicleProfile::class],
-    version = 6,
+    version = 9,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -64,13 +64,44 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE location_points ADD COLUMN speedLimitMps REAL")
+                db.execSQL("ALTER TABLE trips ADD COLUMN speedLimitsFetched INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        private val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE trips ADD COLUMN speedLimitDebugInfo TEXT")
+            }
+        }
+
+        // One-time reset while the speed-limit feature is still being
+        // validated: any trip already marked speedLimitsFetched from before
+        // speedLimitDebugInfo existed (e.g. a quiet 0-match "success" under
+        // an earlier build) is stuck permanently — enrichSpeedLimitsIfNeeded
+        // returns immediately on speedLimitsFetched=true and never touches
+        // debugInfo, so those trips would never show a debug line or retry,
+        // even after a real fix like SpeedLimitLookup's User-Agent header.
+        // This forces every trip to get one fresh, fully-instrumented
+        // attempt on its next open.
+        private val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("UPDATE trips SET speedLimitsFetched = 0")
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "roadlog.db"
-                ).addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                ).addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7,
+                    MIGRATION_7_8, MIGRATION_8_9
+                )
                     .addCallback(object : RoomDatabase.Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

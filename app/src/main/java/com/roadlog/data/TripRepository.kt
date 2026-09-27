@@ -1,6 +1,7 @@
 package com.roadlog.data
 
 import com.roadlog.service.GpsFilter
+import com.roadlog.service.SpeedLimitLookup
 import com.roadlog.util.DistanceUtils
 import kotlinx.coroutines.flow.Flow
 import java.util.concurrent.TimeUnit
@@ -147,6 +148,40 @@ class TripRepository(private val db: AppDatabase) {
 
     suspend fun ensureDefaultVehicleProfile() {
         db.vehicleProfileDao().insert(DefaultVehicleProfile.profile)
+    }
+
+    /**
+     * Fetches posted speed limits for a completed trip's route from OSM's
+     * Overpass API and persists them onto its points, unless already
+     * attempted (see Trip.speedLimitsFetched). A SpeedLimitLookup failure
+     * (no network, Overpass down, etc.) is caught here rather than
+     * propagated — the trip is left unmarked so a later call (e.g. the next
+     * time the trip is viewed) retries — but either way a
+     * speedLimitDebugInfo summary is recorded, since "0 speeding events" is
+     * otherwise indistinguishable from "no roads matched" vs. "the request
+     * failed" from the UI alone.
+     */
+    suspend fun enrichSpeedLimitsIfNeeded(tripId: Long) {
+        val trip = db.tripDao().getById(tripId) ?: return
+        if (trip.speedLimitsFetched) return
+
+        val points = db.locationPointDao().getAcceptedPointsForTrip(tripId)
+        if (points.isEmpty()) {
+            db.tripDao().recordSpeedLimitFetch(tripId, fetched = true, debugInfo = "no accepted points")
+            return
+        }
+
+        try {
+            val result = SpeedLimitLookup.lookup(points)
+            db.locationPointDao().updateSpeedLimits(result.limitsByPointId)
+            db.tripDao().recordSpeedLimitFetch(
+                tripId, fetched = true,
+                debugInfo = "ways=${result.taggedWayCount} segments=${result.segmentCount} " +
+                    "matched=${result.limitsByPointId.size}/${points.size}"
+            )
+        } catch (e: Exception) {
+            db.tripDao().recordSpeedLimitFetch(tripId, fetched = false, debugInfo = "fetch failed: ${e.message}")
+        }
     }
 
     /**

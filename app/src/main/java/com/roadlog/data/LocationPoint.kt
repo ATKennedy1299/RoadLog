@@ -43,5 +43,11 @@ data class LocationPoint(
     // dead zone, the phone being off) — the route map and replay both treat
     // this point as the start of a new, disconnected segment rather than
     // drawing/animating a fake straight-line "trip" across the gap.
-    val startsNewSegment: Boolean = false
+    val startsNewSegment: Boolean = false,
+    // Posted speed limit at this point, in m/s, from OpenStreetMap's
+    // maxspeed tag on the nearest road (see SpeedLimitLookup) — null until
+    // fetched, and stays null if no tagged road was found nearby. Feeds
+    // TripEventAnalyzer's speeding-event detection; nothing else assumes
+    // it's populated.
+    val speedLimitMps: Float? = null
 )
