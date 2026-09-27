@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.draw.clip
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -40,6 +42,7 @@ import com.roadlog.ui.theme.AccentGreen
 import com.roadlog.ui.theme.AccentRed
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
+import com.roadlog.util.TripPerformanceStats
 import org.maplibre.android.geometry.LatLng
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,6 +63,7 @@ fun TripDetailScreen(
     val routeMapPoints = remember(routePoints) {
         routePoints.map { RoutePoint(LatLng(it.latitude, it.longitude), it.gpsSpeedMps, it.startsNewSegment) }
     }
+    val performanceStats by viewModel.performanceStats.collectAsStateWithLifecycle()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var suggestionDismissed by remember(trip?.id) { mutableStateOf(false) }
 
@@ -67,6 +71,7 @@ fun TripDetailScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .verticalScroll(rememberScrollState())
             .padding(20.dp)
     ) {
         Text(
@@ -118,6 +123,11 @@ fun TripDetailScreen(
                 unit = unit,
                 onChangeVehicle = viewModel::changeVehicle
             )
+
+            if (currentTrip.status != TripStatus.ACTIVE) {
+                Spacer(Modifier.height(16.dp))
+                PerformanceCard(performanceStats, unit)
+            }
 
             val suggestion = suggestedVehicle
             if (suggestion != null && !suggestionDismissed) {
@@ -220,6 +230,52 @@ private fun TripStats(
             StatText(label = "GPS POINTS", value = trip.pointCount.toString())
         }
     }
+}
+
+/**
+ * This trip's best acceleration/elapsed-time runs (see PerformanceAnalyzer)
+ * — blank ("—") for whichever this trip never achieved, e.g. a trip that
+ * topped out at 80 mph shows no 100-130 time.
+ */
+@Composable
+private fun PerformanceCard(stats: TripPerformanceStats, unit: DistanceUnit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceRaised, RoundedCornerShape(16.dp))
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        Text("PERFORMANCE", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            StatText(label = "0-60", value = formatRunTime(stats.zeroToSixtyMs))
+            StatText(label = "60-100", value = formatRunTime(stats.sixtyToHundredMs))
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            StatText(label = "60-130", value = formatRunTime(stats.sixtyToOneThirtyMs))
+            StatText(label = "100-130", value = formatRunTime(stats.hundredToOneThirtyMs))
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            StatText(
+                label = "1/8 MILE",
+                value = formatMileTime(stats.eighthMileMs, stats.eighthMileTrapSpeedMps, unit)
+            )
+            StatText(
+                label = "1/4 MILE",
+                value = formatMileTime(stats.quarterMileMs, stats.quarterMileTrapSpeedMps, unit)
+            )
+        }
+    }
+}
+
+private fun formatRunTime(ms: Long?): String =
+    ms?.let { String.format(Locale.US, "%.1fs", it / 1000.0) } ?: "—"
+
+private fun formatMileTime(ms: Long?, trapSpeedMps: Double?, unit: DistanceUnit): String {
+    if (ms == null) return "—"
+    val time = String.format(Locale.US, "%.1fs", ms / 1000.0)
+    val trap = trapSpeedMps?.let { String.format(Locale.US, " @ %.0f %s", unit.mpsToSpeed(it), unit.speedLabel) }.orEmpty()
+    return time + trap
 }
 
 @Composable

@@ -9,11 +9,14 @@ import com.roadlog.data.TripRepository
 import com.roadlog.data.TripStatus
 import com.roadlog.data.UnitsRepository
 import com.roadlog.data.VehicleProfile
+import com.roadlog.util.PerformanceAnalyzer
+import com.roadlog.util.TripPerformanceStats
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -54,6 +57,11 @@ class TripDetailViewModel(
     // need to be a reactive Flow like the fields above.
     private val _routePoints = MutableStateFlow<List<LocationPoint>>(emptyList())
     val routePoints: StateFlow<List<LocationPoint>> = _routePoints.asStateFlow()
+
+    /** Best 0-60/60-100/60-130/100-130 and 1/8-1/4 mile times for this trip alone — see PerformanceAnalyzer. */
+    val performanceStats: StateFlow<TripPerformanceStats> = routePoints
+        .map { PerformanceAnalyzer.computeBestRunTimes(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TripPerformanceStats())
 
     init {
         viewModelScope.launch {
