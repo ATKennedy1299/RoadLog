@@ -35,7 +35,9 @@ interface TripDao {
         UPDATE trips
         SET distanceMeters = :distanceMeters,
             maxSpeedMps = :maxSpeedMps,
-            pointCount = :pointCount
+            pointCount = :pointCount,
+            time60to100MphMs = :time60to100MphMs,
+            time100to130MphMs = :time100to130MphMs
         WHERE id = :tripId
         """
     )
@@ -43,7 +45,9 @@ interface TripDao {
         tripId: Long,
         distanceMeters: Double,
         maxSpeedMps: Double,
-        pointCount: Int
+        pointCount: Int,
+        time60to100MphMs: Long,
+        time100to130MphMs: Long
     )
 
     @Query(

@@ -69,6 +69,7 @@ fun StatsScreen(
             ) {
                 item { HeroDistanceCard(stats, unit) }
                 item { OverviewCard(stats, unit) }
+                item { HighSpeedTimeCard(stats) }
                 item {
                     LongestTripCard(
                         trip = stats.longestTrip,
@@ -152,6 +153,30 @@ private fun OverviewCard(stats: CumulativeStats, unit: DistanceUnit) {
                 )
             )
             StatText(label = "AVG DURATION", value = formatDuration(stats.averageTripDurationMs / 1000))
+        }
+    }
+}
+
+/**
+ * Lifetime time spent at highway/high speeds (see Trip.time60to100MphMs /
+ * time100to130MphMs) — always in mph bands regardless of the display unit,
+ * matching SpeedZone's existing mph-based route-coloring thresholds. Shown
+ * even at zero rather than hidden, consistent with the other all-time cards.
+ */
+@Composable
+private fun HighSpeedTimeCard(stats: CumulativeStats) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceRaised, RoundedCornerShape(16.dp))
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text("HIGH SPEED TIME", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+        Spacer(Modifier.height(6.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            StatText(label = "60-100 MPH", value = formatDuration(stats.totalTime60to100MphMs / 1000))
+            StatText(label = "100-130 MPH", value = formatDuration(stats.totalTime100to130MphMs / 1000))
         }
     }
 }
