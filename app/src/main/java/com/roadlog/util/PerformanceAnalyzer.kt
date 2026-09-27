@@ -154,7 +154,8 @@ object PerformanceAnalyzer {
                 hundredCrossMs = crossMs
                 sixtyCrossMs?.let { s60 ->
                     val elapsedMs = crossMs - s60
-                    if (bestSixtyToHundredMs == null || elapsedMs < bestSixtyToHundredMs) {
+                    val current = bestSixtyToHundredMs
+                    if (current == null || elapsedMs < current) {
                         bestSixtyToHundredMs = elapsedMs
                     }
                 }
@@ -167,13 +168,15 @@ object PerformanceAnalyzer {
                 val crossMs = prev.timestampEpochMs + (fraction * dtMs).toLong()
                 sixtyCrossMs?.let { s60 ->
                     val elapsedMs = crossMs - s60
-                    if (bestSixtyToOneThirtyMs == null || elapsedMs < bestSixtyToOneThirtyMs) {
+                    val current = bestSixtyToOneThirtyMs
+                    if (current == null || elapsedMs < current) {
                         bestSixtyToOneThirtyMs = elapsedMs
                     }
                 }
                 hundredCrossMs?.let { s100 ->
                     val elapsedMs = crossMs - s100
-                    if (bestHundredToOneThirtyMs == null || elapsedMs < bestHundredToOneThirtyMs) {
+                    val current = bestHundredToOneThirtyMs
+                    if (current == null || elapsedMs < current) {
                         bestHundredToOneThirtyMs = elapsedMs
                     }
                 }
