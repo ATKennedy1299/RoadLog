@@ -1,5 +1,6 @@
 package com.roadlog.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -28,7 +29,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -40,8 +46,10 @@ import com.roadlog.ui.TripDetailViewModel
 import com.roadlog.ui.theme.AccentAmber
 import com.roadlog.ui.theme.AccentGreen
 import com.roadlog.ui.theme.AccentRed
+import com.roadlog.ui.theme.DividerColor
 import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
+import com.roadlog.util.SpeedDistanceSample
 import com.roadlog.util.TripEvent
 import com.roadlog.util.TripEventType
 import com.roadlog.util.TripPerformanceStats
@@ -136,6 +144,11 @@ fun TripDetailScreen(
             if (currentTrip.status != TripStatus.ACTIVE) {
                 Spacer(Modifier.height(16.dp))
                 PerformanceCard(performanceStats, unit)
+
+                if (performanceStats.quarterMileSamples.isNotEmpty()) {
+                    Spacer(Modifier.height(16.dp))
+                    QuarterMileChart(performanceStats.quarterMileSamples, unit)
+                }
             }
 
             val suggestion = suggestedVehicle
@@ -329,6 +342,67 @@ private fun formatMileTime(ms: Long?, trapSpeedMps: Double?, unit: DistanceUnit)
     val time = String.format(Locale.US, "%.1fs", ms / 1000.0)
     val trap = trapSpeedMps?.let { String.format(Locale.US, " @ %.0f %s", unit.mpsToSpeed(it), unit.speedLabel) }.orEmpty()
     return time + trap
+}
+
+// Distance markers are fixed to the drag-strip standard (feet) regardless of
+// the display unit, matching how the mile splits themselves are defined —
+// same convention SpeedZone already uses for its mph-based thresholds.
+private const val QUARTER_MILE_METERS = 402.336
+
+/**
+ * Speed vs. distance for the specific run that set quarterMileMs (see
+ * PerformanceAnalyzer) — a single line, since there's only one series to
+ * show and the card title already names it. Peak speed is called out once
+ * as a direct label rather than repeating a number at every sample.
+ */
+@Composable
+private fun QuarterMileChart(samples: List<SpeedDistanceSample>, unit: DistanceUnit) {
+    val maxSpeedMps = samples.maxOf { it.speedMps }.coerceAtLeast(1.0)
+    val peakLabel = String.format(Locale.US, "%.0f %s", unit.mpsToSpeed(maxSpeedMps), unit.speedLabel)
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceRaised, RoundedCornerShape(16.dp))
+            .padding(20.dp)
+    ) {
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("1/4 MILE — SPEED", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            Text(peakLabel, style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+        }
+        Spacer(Modifier.height(12.dp))
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(120.dp)
+        ) {
+            val baselineY = size.height
+            drawLine(
+                color = DividerColor,
+                start = Offset(0f, baselineY),
+                end = Offset(size.width, baselineY),
+                strokeWidth = 1.dp.toPx()
+            )
+
+            val path = Path()
+            samples.forEachIndexed { index, sample ->
+                val x = (sample.distanceMeters / QUARTER_MILE_METERS).toFloat().coerceIn(0f, 1f) * size.width
+                val y = size.height - (sample.speedMps / maxSpeedMps).toFloat().coerceIn(0f, 1f) * size.height
+                if (index == 0) path.moveTo(x, y) else path.lineTo(x, y)
+            }
+            drawPath(
+                path = path,
+                color = AccentGreen,
+                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round)
+            )
+        }
+        Spacer(Modifier.height(6.dp))
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("0", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            Text("1/8 MI", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+            Text("1/4 MI", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+        }
+    }
 }
 
 @Composable

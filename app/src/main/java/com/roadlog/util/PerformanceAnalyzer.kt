@@ -20,8 +20,14 @@ data class TripPerformanceStats(
     val eighthMileMs: Long? = null,
     val eighthMileTrapSpeedMps: Double? = null,
     val quarterMileMs: Long? = null,
-    val quarterMileTrapSpeedMps: Double? = null
+    val quarterMileTrapSpeedMps: Double? = null,
+    // Speed at each point along the specific run that set quarterMileMs, from
+    // the standing start (0m) to the finish line (402.336m) — for charting.
+    // Empty whenever quarterMileMs is null.
+    val quarterMileSamples: List<SpeedDistanceSample> = emptyList()
 )
+
+data class SpeedDistanceSample(val distanceMeters: Double, val speedMps: Double)
 
 /**
  * Derives [TripPerformanceStats] purely by re-scanning a trip's own
@@ -75,6 +81,13 @@ object PerformanceAnalyzer {
         var bestEighthMileTrapSpeedMps: Double? = null
         var bestQuarterMileMs: Long? = null
         var bestQuarterMileTrapSpeedMps: Double? = null
+        var bestQuarterMileSamples: List<SpeedDistanceSample> = emptyList()
+
+        // Every (distance-since-stop, speed) sample seen during the current
+        // stop episode, oldest first — snapshotted into bestQuarterMileSamples
+        // whenever that episode sets a new quarter-mile record. Reset on every
+        // new stop and on a GPS gap, same as the other in-progress state.
+        var currentEpisodeSamples = mutableListOf<SpeedDistanceSample>()
 
         for (i in 1 until points.size) {
             val prev = points[i - 1]
@@ -86,6 +99,7 @@ object PerformanceAnalyzer {
                 distanceSinceStopMeters = 0.0
                 sixtyCrossMs = null
                 hundredCrossMs = null
+                currentEpisodeSamples = mutableListOf()
                 continue
             }
 
@@ -100,6 +114,7 @@ object PerformanceAnalyzer {
                 zeroToSixtyRecordedThisStop = false
                 eighthMileRecordedThisStop = false
                 quarterMileRecordedThisStop = false
+                currentEpisodeSamples = mutableListOf(SpeedDistanceSample(0.0, currSpeed))
             } else if (lastStopTimeMs != null) {
                 val stopTimeMs = lastStopTimeMs
                 val segmentMeters = DistanceUtils.haversineMeters(
@@ -127,9 +142,18 @@ object PerformanceAnalyzer {
                     if (bestQuarterMileMs == null || elapsedMs < bestQuarterMileMs) {
                         bestQuarterMileMs = elapsedMs
                         bestQuarterMileTrapSpeedMps = trapSpeed
+                        // Snapshot everything captured so far this episode
+                        // (before this final segment) plus the interpolated
+                        // finish line itself, so the chart ends exactly at
+                        // 402.336m rather than overshooting into the next
+                        // sample past the line.
+                        bestQuarterMileSamples =
+                            currentEpisodeSamples.toList() + SpeedDistanceSample(QUARTER_MILE_METERS, trapSpeed)
                     }
                     quarterMileRecordedThisStop = true
                 }
+
+                currentEpisodeSamples.add(SpeedDistanceSample(distanceSinceStopMeters, currSpeed))
             }
 
             if (prevSpeed < MPH_60_MPS && currSpeed >= MPH_60_MPS) {
@@ -191,7 +215,8 @@ object PerformanceAnalyzer {
             eighthMileMs = bestEighthMileMs,
             eighthMileTrapSpeedMps = bestEighthMileTrapSpeedMps,
             quarterMileMs = bestQuarterMileMs,
-            quarterMileTrapSpeedMps = bestQuarterMileTrapSpeedMps
+            quarterMileTrapSpeedMps = bestQuarterMileTrapSpeedMps,
+            quarterMileSamples = bestQuarterMileSamples
         )
     }
 }
