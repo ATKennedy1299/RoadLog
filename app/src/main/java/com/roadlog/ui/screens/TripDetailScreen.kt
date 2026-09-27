@@ -44,6 +44,7 @@ import com.roadlog.ui.theme.SurfaceRaised
 import com.roadlog.ui.theme.TextSecondary
 import com.roadlog.util.TripEvent
 import com.roadlog.util.TripEventType
+import com.roadlog.util.TripPerformanceStats
 import org.maplibre.android.geometry.LatLng
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -68,6 +69,7 @@ fun TripDetailScreen(
     val routeEventMarkers = remember(tripEvents) {
         tripEvents.map { RouteEventMarker(LatLng(it.latitude, it.longitude), it.type) }
     }
+    val performanceStats by viewModel.performanceStats.collectAsStateWithLifecycle()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var suggestionDismissed by remember(trip?.id) { mutableStateOf(false) }
 
@@ -130,6 +132,11 @@ fun TripDetailScreen(
                 unit = unit,
                 onChangeVehicle = viewModel::changeVehicle
             )
+
+            if (currentTrip.status != TripStatus.ACTIVE) {
+                Spacer(Modifier.height(16.dp))
+                PerformanceCard(performanceStats, unit)
+            }
 
             val suggestion = suggestedVehicle
             if (suggestion != null && !suggestionDismissed) {
@@ -276,6 +283,52 @@ private fun EventStatItem(color: Color, label: String, count: Int) {
         }
         Text(text = count.toString(), style = MaterialTheme.typography.titleMedium, color = Color.White, fontWeight = FontWeight.Bold)
     }
+}
+
+/**
+ * This trip's best acceleration/elapsed-time runs (see PerformanceAnalyzer)
+ * — blank ("—") for whichever this trip never achieved, e.g. a trip that
+ * topped out at 80 mph shows no 100-130 time.
+ */
+@Composable
+private fun PerformanceCard(stats: TripPerformanceStats, unit: DistanceUnit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(SurfaceRaised, RoundedCornerShape(16.dp))
+            .padding(20.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
+    ) {
+        Text("PERFORMANCE", style = MaterialTheme.typography.labelSmall, color = TextSecondary)
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            StatText(label = "0-60", value = formatRunTime(stats.zeroToSixtyMs))
+            StatText(label = "60-100", value = formatRunTime(stats.sixtyToHundredMs))
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            StatText(label = "60-130", value = formatRunTime(stats.sixtyToOneThirtyMs))
+            StatText(label = "100-130", value = formatRunTime(stats.hundredToOneThirtyMs))
+        }
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            StatText(
+                label = "1/8 MILE",
+                value = formatMileTime(stats.eighthMileMs, stats.eighthMileTrapSpeedMps, unit)
+            )
+            StatText(
+                label = "1/4 MILE",
+                value = formatMileTime(stats.quarterMileMs, stats.quarterMileTrapSpeedMps, unit)
+            )
+        }
+    }
+}
+
+private fun formatRunTime(ms: Long?): String =
+    ms?.let { String.format(Locale.US, "%.1fs", it / 1000.0) } ?: "—"
+
+private fun formatMileTime(ms: Long?, trapSpeedMps: Double?, unit: DistanceUnit): String {
+    if (ms == null) return "—"
+    val time = String.format(Locale.US, "%.1fs", ms / 1000.0)
+    val trap = trapSpeedMps?.let { String.format(Locale.US, " @ %.0f %s", unit.mpsToSpeed(it), unit.speedLabel) }.orEmpty()
+    return time + trap
 }
 
 @Composable

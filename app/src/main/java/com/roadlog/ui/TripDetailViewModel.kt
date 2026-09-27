@@ -9,8 +9,10 @@ import com.roadlog.data.TripRepository
 import com.roadlog.data.TripStatus
 import com.roadlog.data.UnitsRepository
 import com.roadlog.data.VehicleProfile
+import com.roadlog.util.PerformanceAnalyzer
 import com.roadlog.util.TripEvent
 import com.roadlog.util.TripEventAnalyzer
+import com.roadlog.util.TripPerformanceStats
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -63,6 +65,11 @@ class TripDetailViewModel(
     val tripEvents: StateFlow<List<TripEvent>> = routePoints
         .map { TripEventAnalyzer.detectEvents(it) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Best 0-60/60-100/60-130/100-130 and 1/8-1/4 mile times for this trip alone — see PerformanceAnalyzer. */
+    val performanceStats: StateFlow<TripPerformanceStats> = routePoints
+        .map { PerformanceAnalyzer.computeBestRunTimes(it) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), TripPerformanceStats())
 
     // Guards enrichSpeedLimitsIfNeeded() so it's only kicked off once per
     // ViewModel instance — trip's Flow can re-emit for unrelated reasons
