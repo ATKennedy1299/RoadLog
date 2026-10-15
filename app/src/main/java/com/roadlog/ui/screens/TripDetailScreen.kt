@@ -21,16 +21,21 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import android.content.Context
+import android.content.Intent
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.roadlog.data.DistanceUnit
 import com.roadlog.data.Trip
@@ -45,7 +50,9 @@ import com.roadlog.ui.theme.TextSecondary
 import com.roadlog.util.TripEvent
 import com.roadlog.util.TripEventType
 import com.roadlog.util.TripPerformanceStats
+import kotlinx.coroutines.launch
 import org.maplibre.android.geometry.LatLng
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -72,6 +79,8 @@ fun TripDetailScreen(
     val performanceStats by viewModel.performanceStats.collectAsStateWithLifecycle()
     var showDeleteDialog by remember { mutableStateOf(false) }
     var suggestionDismissed by remember(trip?.id) { mutableStateOf(false) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
@@ -171,6 +180,18 @@ fun TripDetailScreen(
 
             if (currentTrip.status != TripStatus.ACTIVE) {
                 Spacer(Modifier.height(24.dp))
+                Text(
+                    text = "EXPORT CSV",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = AccentGreen,
+                    modifier = Modifier.clickable {
+                        coroutineScope.launch {
+                            val csv = viewModel.buildExportCsv()
+                            shareTripCsv(context, csv, currentTrip.id)
+                        }
+                    }
+                )
+                Spacer(Modifier.height(16.dp))
                 Button(
                     onClick = { showDeleteDialog = true },
                     colors = ButtonDefaults.buttonColors(
@@ -195,6 +216,25 @@ fun TripDetailScreen(
             onDismiss = { showDeleteDialog = false }
         )
     }
+}
+
+/**
+ * Writes the CSV to a cache file (declared in res/xml/file_paths.xml) and
+ * hands it to the normal Android share sheet via a FileProvider content://
+ * URI — a raw file:// URI would be rejected by most share targets on
+ * modern Android.
+ */
+private fun shareTripCsv(context: Context, csv: String, tripId: Long) {
+    val exportsDir = File(context.cacheDir, "exports").apply { mkdirs() }
+    val file = File(exportsDir, "trip_$tripId.csv")
+    file.writeText(csv)
+    val uri = FileProvider.getUriForFile(context, "com.roadlog.fileprovider", file)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/csv"
+        putExtra(Intent.EXTRA_STREAM, uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "Export trip CSV"))
 }
 
 @Composable

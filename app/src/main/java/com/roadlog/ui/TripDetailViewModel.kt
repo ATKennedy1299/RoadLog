@@ -9,6 +9,7 @@ import com.roadlog.data.TripRepository
 import com.roadlog.data.TripStatus
 import com.roadlog.data.UnitsRepository
 import com.roadlog.data.VehicleProfile
+import com.roadlog.util.CsvExporter
 import com.roadlog.util.PerformanceAnalyzer
 import com.roadlog.util.TripEvent
 import com.roadlog.util.TripEventAnalyzer
@@ -110,4 +111,7 @@ class TripDetailViewModel(
     fun changeVehicle(vehicleProfileId: Long) {
         viewModelScope.launch { repository.updateTripVehicle(tripId, vehicleProfileId) }
     }
+
+    /** Raw, unfiltered CSV of every recorded point for this trip — for troubleshooting, see CsvExporter. */
+    suspend fun buildExportCsv(): String = CsvExporter.buildCsv(repository.getAllPointsForTrip(tripId))
 }

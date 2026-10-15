@@ -38,6 +38,10 @@ class TripRepository(private val db: AppDatabase) {
     suspend fun getRoutePoints(tripId: Long): List<LocationPoint> =
         db.locationPointDao().getAcceptedPointsForTrip(tripId)
 
+    /** Every recorded point, filtered or not — see CsvExporter for why the raw export needs this instead of getRoutePoints. */
+    suspend fun getAllPointsForTrip(tripId: Long): List<LocationPoint> =
+        db.locationPointDao().getPointsForTrip(tripId)
+
     fun observeAllVehicleProfiles(): Flow<List<VehicleProfile>> = db.vehicleProfileDao().observeAll()
     fun observeVehicleProfile(id: Long): Flow<VehicleProfile?> = db.vehicleProfileDao().observeById(id)
     suspend fun addVehicleProfile(profile: VehicleProfile): Long = db.vehicleProfileDao().insert(profile)
