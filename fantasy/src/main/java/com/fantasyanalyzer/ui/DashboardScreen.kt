@@ -201,7 +201,8 @@ private fun Tabs(
     onRequestWeek: (Int) -> Unit,
     lineupActions: LineupActions,
 ) {
-    var tab by rememberSaveable { mutableIntStateOf(0) }
+    // Opens on Matchup (tab order unchanged).
+    var tab by rememberSaveable { mutableIntStateOf(TABS.indexOf("Matchup")) }
     var sheetPlayer by remember { mutableStateOf<Player?>(null) }
     sheetPlayer?.let { PlayerSheet(it, d) { sheetPlayer = null } }
     CompositionLocalProvider(LocalOpenPlayer provides { p: Player -> sheetPlayer = p }) {
