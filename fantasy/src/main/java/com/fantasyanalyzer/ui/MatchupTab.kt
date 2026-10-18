@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -40,6 +41,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
@@ -54,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -290,20 +293,27 @@ private fun streak(d: Dashboard, teamId: Int): String? {
 @Composable
 private fun ScoreCard(d: Dashboard, v: MatchupView) {
     val away = v.away
+    val homeWin = v.homeWinProbability
     Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
-        Row(Modifier.fillMaxWidth().padding(vertical = 18.dp, horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-            TeamColumn(d, v.home, Modifier.weight(1f))
-            Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
-                WinRing(v.homeWinProbability, v.matchup.complete)
+        Row(Modifier.fillMaxWidth().padding(vertical = 18.dp, horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            TeamColumn(d, v.home, homeWin, v.matchup.complete, mirrored = false, modifier = Modifier.weight(1f))
+            Text("vs", Modifier.width(32.dp), textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (away != null) {
+                TeamColumn(d, away, homeWin?.let { 1 - it }, v.matchup.complete, mirrored = true, modifier = Modifier.weight(1f))
+            } else {
+                Text("Bye", Modifier.weight(1f), textAlign = TextAlign.Center)
             }
-            if (away != null) TeamColumn(d, away, Modifier.weight(1f))
-            else Text("Bye", Modifier.weight(1f), textAlign = TextAlign.Center)
         }
     }
 }
 
+/**
+ * One side of the score card. Under the score, the team's own win chance
+ * with a bar (filling from the middle outward), or WIN/LOSS once final.
+ */
 @Composable
-private fun TeamColumn(d: Dashboard, side: MatchupSide, modifier: Modifier) {
+private fun TeamColumn(d: Dashboard, side: MatchupSide, win: Double?, complete: Boolean, mirrored: Boolean, modifier: Modifier) {
     val team = d.league.teams[side.teamId]
     val record = d.standings.firstOrNull { it.teamId == side.teamId }?.record?.toString()
     val streak = streak(d, side.teamId)
@@ -321,37 +331,41 @@ private fun TeamColumn(d: Dashboard, side: MatchupSide, modifier: Modifier) {
         }
         Text(fmt1(side.actual), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
         side.projected?.let { Text("Proj ${fmt1(it)}", style = MaterialTheme.typography.labelMedium, color = muted) }
-    }
-}
-
-/** The left team's chance to win as a ring; the result once the matchup is final. */
-@Composable
-private fun WinRing(homeWin: Double?, complete: Boolean) {
-    val track = MaterialTheme.colorScheme.surfaceVariant
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(84.dp), contentAlignment = Alignment.Center) {
-            Canvas(Modifier.size(84.dp)) {
-                val stroke = 8.dp.toPx()
-                val inset = stroke / 2
-                val arcSize = Size(size.width - stroke, size.height - stroke)
-                drawArc(track, 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
-                if (homeWin != null && homeWin > 0) {
-                    drawArc(Good, -90f, (360 * homeWin).toFloat(), false, Offset(inset, inset), arcSize,
-                        style = Stroke(stroke, cap = StrokeCap.Round))
+        when {
+            win == null -> {}
+            complete -> Text(
+                if (win >= 1.0) "WIN" else if (win <= 0.0) "LOSS" else "TIE",
+                style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, letterSpacing = 1.sp,
+                color = if (win >= 1.0) Good else if (win <= 0.0) Bad else muted,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            else -> {
+                val label = pct(win).replace(".0%", "%")
+                val favored = win >= 0.5
+                Row(Modifier.fillMaxWidth().padding(top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val percent: @Composable () -> Unit = {
+                        Text(label, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
+                            color = if (favored) Good else muted)
+                    }
+                    if (!mirrored) {
+                        percent()
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    LinearProgressIndicator(
+                        progress = { win.toFloat() },
+                        modifier = Modifier.weight(1f).height(6.dp)
+                            .then(if (mirrored) Modifier.scale(scaleX = -1f, scaleY = 1f) else Modifier),
+                        color = if (favored) Good else muted,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant,
+                        strokeCap = StrokeCap.Round,
+                    )
+                    if (mirrored) {
+                        Spacer(Modifier.width(6.dp))
+                        percent()
+                    }
                 }
             }
-            Text(
-                when {
-                    homeWin == null -> "–"
-                    complete -> if (homeWin >= 1.0) "W" else if (homeWin <= 0.0) "L" else "T"
-                    else -> pct(homeWin).replace(".0%", "%")
-                },
-                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
-            )
         }
-        Text(if (complete) "FINAL" else "TO WIN", style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp,
-            color = muted, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
