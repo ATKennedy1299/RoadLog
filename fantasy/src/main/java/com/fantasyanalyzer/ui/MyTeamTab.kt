@@ -62,7 +62,7 @@ class LineupActions(
     val onDismiss: () -> Unit,
 )
 
-/** ESPN-style roster for any week, with lineup editing for weeks that haven't locked. */
+/** ESPN-style roster for any week; lineups can be edited for the current week only, as on ESPN. */
 @Composable
 internal fun MyTeamScreen(
     d: Dashboard,
@@ -170,28 +170,35 @@ internal fun MyTeamScreen(
     val suggested = remember(d, myTeam, week, roster) {
         LineupEditor.lineupFor(roster, advice.bestLineup.map { it.second.id }.toSet(), counts, now)
     }
-    val editable = roster.any { !it.isLocked(now) }
+    // ESPN only takes lineup changes for the current week; past weeks are over, future ones not open yet.
+    val isCurrentWeek = week == league.currentWeek
+    val editable = isCurrentWeek && roster.any { !it.isLocked(now) }
 
-    if (editable) {
-        Row(Modifier.padding(vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(
-                onClick = { suggested?.let { target = it }; lineup.onDismiss() },
-                enabled = suggested != null && suggested != target,
-                modifier = Modifier.weight(1f),
-            ) { Text("Quick Lineup") }
-            OutlinedButton(
-                onClick = { target = LineupEditor.current(roster); lineup.onDismiss() },
-                enabled = pending.isNotEmpty(),
-                modifier = Modifier.weight(1f),
-            ) { Text("Reset") }
-        }
-        if (advice.gain > 0.05 && pending.isEmpty()) {
-            Text("Quick Lineup adds +${fmt1(advice.gain)} projected points.", color = Good,
-                style = MaterialTheme.typography.bodySmall)
-        }
+    Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(
+            onClick = { suggested?.let { target = it }; lineup.onDismiss() },
+            enabled = editable && suggested != null && suggested != target,
+            modifier = Modifier.weight(1f),
+        ) { Text("Quick Lineup") }
+        OutlinedButton(
+            onClick = { target = LineupEditor.current(roster); lineup.onDismiss() },
+            enabled = editable && pending.isNotEmpty(),
+            modifier = Modifier.weight(1f),
+        ) { Text("Reset") }
+    }
+    when {
+        !isCurrentWeek -> Text(
+            if (week < league.currentWeek) "Week $week is over." else "ESPN only takes lineup changes for the current week (week ${league.currentWeek}).",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        editable && advice.gain > 0.05 && pending.isEmpty() -> Text(
+            "Quick Lineup adds +${fmt1(advice.gain)} projected points.", color = Good,
+            style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp),
+        )
     }
 
-    if (advice.alerts.isNotEmpty() || advice.emptySlots > 0) {
+    if (week >= league.currentWeek && (advice.alerts.isNotEmpty() || advice.emptySlots > 0)) {
         Column(Modifier.padding(vertical = 8.dp)) {
             if (advice.emptySlots > 0) {
                 Text("⚠ ${advice.emptySlots} empty starting slot${if (advice.emptySlots > 1) "s" else ""}", color = Bad,
@@ -239,7 +246,7 @@ internal fun MyTeamScreen(
     val edit = { s: RosterSpot -> picking = roster.first { it.player.id == s.player.id } }
 
     SectionHeader("STARTERS", "SCORE")
-    starters.forEach { RosterLine(it, original.getValue(it.player.id), now, edit) }
+    starters.forEach { RosterLine(it, original.getValue(it.player.id), locked = !isCurrentWeek || it.isLocked(now), now, edit) }
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Text("Total", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         Column(horizontalAlignment = Alignment.End) {
@@ -249,7 +256,7 @@ internal fun MyTeamScreen(
         }
     }
     SectionHeader("BENCH", "")
-    bench.forEach { RosterLine(it, original.getValue(it.player.id), now, edit) }
+    bench.forEach { RosterLine(it, original.getValue(it.player.id), locked = !isCurrentWeek || it.isLocked(now), now, edit) }
 
     picking?.let { spot ->
         val here = target[spot.player.id] ?: spot.slotId
@@ -318,11 +325,10 @@ private fun SectionHeader(left: String, right: String) {
 
 /** One ESPN-style roster line: slot pill, photo, name, ownership, game, points over projection. */
 @Composable
-private fun RosterLine(spot: RosterSpot, originalSlot: Int, now: Long, onSlotTap: (RosterSpot) -> Unit) {
+private fun RosterLine(spot: RosterSpot, originalSlot: Int, locked: Boolean, now: Long, onSlotTap: (RosterSpot) -> Unit) {
     val p = spot.player
     val open = LocalOpenPlayer.current
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    val locked = spot.isLocked(now)
     val moved = spot.slotId != originalSlot
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         // Slot pill: tap to move (greyed out once their game has started)
@@ -355,7 +361,7 @@ private fun RosterLine(spot: RosterSpot, originalSlot: Int, now: Long, onSlotTap
             PlayerPhoto(p, 44.dp, Modifier.padding(horizontal = 10.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text((if (locked) "🔒 " else "") + shortName(p.name), style = MaterialTheme.typography.bodyMedium,
+                    Text(shortName(p.name), style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false))
                     Text(" ${p.proTeam} ${p.position}", style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1)

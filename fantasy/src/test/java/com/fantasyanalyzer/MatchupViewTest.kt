@@ -1,6 +1,7 @@
 package com.fantasyanalyzer
 
 import com.fantasyanalyzer.analysis.Matchups
+import com.fantasyanalyzer.analysis.orientedFor
 import com.fantasyanalyzer.data.League
 import com.fantasyanalyzer.data.Matchup
 import com.fantasyanalyzer.data.Player
@@ -81,5 +82,17 @@ class MatchupViewTest {
         assertTrue(s.player.gameStarted(0))
         assertEquals(17.5, s.player.pointsSoFar(0), 1e-9)
         assertEquals(17.5, s.player.expectedFinal(0), 1e-9)
+    }
+
+    @Test
+    fun orientedPutsMyTeamOnTheLeft() {
+        val m = Matchup(5, 1, 2, 90.0, 110.0, "AWAY", false)
+        val mine = m.orientedFor(2)
+        assertEquals(2, mine.homeId)
+        assertEquals(110.0, mine.homePoints, 1e-9)
+        assertEquals("HOME", mine.winner) // still my win
+        assertEquals(m, m.orientedFor(1)) // already on the left
+        assertEquals(m, m.orientedFor(3)) // not my game
+        assertEquals(m, m.orientedFor(null))
     }
 }

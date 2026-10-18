@@ -1,8 +1,17 @@
-@file:OptIn(ExperimentalMaterial3Api::class)
+@file:OptIn(ExperimentalMaterial3Api::class, ExperimentalAnimationApi::class)
 
 package com.fantasyanalyzer.ui
 
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.ExperimentalAnimationApi
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -37,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -46,6 +56,7 @@ import com.fantasyanalyzer.analysis.MatchupSide
 import com.fantasyanalyzer.analysis.Matchups
 import com.fantasyanalyzer.analysis.SlotRow
 import com.fantasyanalyzer.analysis.fmt1
+import com.fantasyanalyzer.analysis.orientedFor
 import com.fantasyanalyzer.data.Matchup
 import com.fantasyanalyzer.data.NflGame
 import com.fantasyanalyzer.data.Player
@@ -71,7 +82,8 @@ internal fun MatchupTab(
     // Keyed on the dashboard too, so a refresh (which clears loaded weeks) asks again.
     LaunchedEffect(week, d) { onRequestWeek(week) }
 
-    val matchups = Matchups.inWeek(league, week, myTeam)
+    // The user's team always on the left.
+    val matchups = Matchups.inWeek(league, week, myTeam).map { it.orientedFor(myTeam) }
     val now = remember(d, weekLineups[week]) { System.currentTimeMillis() }
 
     Column(Modifier.padding(top = 8.dp)) {
@@ -114,7 +126,44 @@ internal fun MatchupTab(
         }
 
         val v = views[idx]
-        MatchupHeader(d, v.matchup, v.home, v.away, v.homeWinProbability)
+        // Swipe the score card (just the card) to flip through the week's matchups.
+        AnimatedContent(
+            targetState = idx,
+            transitionSpec = {
+                val dir = if (targetState > initialState) 1 else -1
+                (slideInHorizontally { w -> dir * w } + fadeIn()) togetherWith (slideOutHorizontally { w -> -dir * w } + fadeOut())
+            },
+            label = "matchup card",
+        ) { i ->
+            val shown = views.getOrNull(i) ?: return@AnimatedContent
+            Box(
+                Modifier.pointerInput(i, views.size) {
+                    val threshold = 60.dp.toPx()
+                    var total = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { total = 0f },
+                        onDragEnd = {
+                            if (total < -threshold && i < views.lastIndex) selected = i + 1
+                            else if (total > threshold && i > 0) selected = i - 1
+                        },
+                    ) { change, amount ->
+                        change.consume()
+                        total += amount
+                    }
+                },
+            ) {
+                MatchupHeader(d, shown.matchup, shown.home, shown.away, shown.homeWinProbability)
+            }
+        }
+        if (views.size > 1) {
+            Text(
+                "${idx + 1} of ${views.size} · swipe the card for other matchups",
+                Modifier.fillMaxWidth().padding(top = 4.dp),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+        }
 
         when {
             lineups == null || lineups is WeekLineups.Loading -> Row(

@@ -29,6 +29,14 @@ data class MatchupView(
     val bench: List<SlotRow>,
 )
 
+/** The same matchup with [teamId] on the home (left) side, if they're playing in it. */
+fun Matchup.orientedFor(teamId: Int?): Matchup =
+    if (teamId == null || awayId != teamId) this
+    else copy(
+        homeId = teamId, awayId = homeId, homePoints = awayPoints, awayPoints = homePoints,
+        winner = when (winner) { "HOME" -> "AWAY"; "AWAY" -> "HOME"; else -> winner },
+    )
+
 object Matchups {
     /** ESPN's lineup order: QB, RB, RB/WR, WR, WR/TE, TE, FLEX, OP, IDP slots, D/ST, K, P, HC. */
     private val SLOT_ORDER = listOf(0, 1, 2, 3, 4, 5, 6, 23, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 24)
