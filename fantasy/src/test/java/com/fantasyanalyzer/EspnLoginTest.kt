@@ -3,7 +3,6 @@ package com.fantasyanalyzer
 import com.fantasyanalyzer.data.EspnClient
 import com.fantasyanalyzer.data.EspnException
 import com.fantasyanalyzer.data.EspnLogin
-import com.sun.net.httpserver.HttpServer
 import org.json.JSONObject
 import com.fantasyanalyzer.data.defaultSeason
 import org.junit.Assert.assertEquals
@@ -13,7 +12,9 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.fail
-import java.net.InetSocketAddress
+import java.net.InetAddress
+import java.net.ServerSocket
+import kotlin.concurrent.thread
 import java.time.LocalDate
 
 class EspnLoginTest {
@@ -91,27 +92,44 @@ class EspnLoginTest {
         assertEquals(2026, leagues[0].season)
     }
 
-    /** Fake league API that only answers to one cookie, like ESPN for a private league. */
+    /**
+     * Fake league API that only answers to one cookie, like ESPN for a private
+     * league. A bare socket server, since Android unit tests don't get the JDK's
+     * com.sun HTTP server.
+     */
     private fun withFakeEspn(goodCookie: String, block: (baseUrl: String, hits: MutableList<String?>) -> Unit) {
-        val hits = mutableListOf<String?>()
-        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
-        server.createContext("/") { ex ->
-            val cookie = ex.requestHeaders.getFirst("Cookie")
-            hits += cookie
-            val (code, body) = if (cookie == goodCookie) {
-                200 to """{"id": 1, "seasonId": 2026, "settings": {"name": "Real League"}, "teams": [], "schedule": []}"""
-            } else {
-                401 to """{"messages": ["You are not authorized to view this League."], "details": [{"type": "AUTH_LEAGUE_NOT_VISIBLE"}]}"""
+        val hits = java.util.Collections.synchronizedList(mutableListOf<String?>())
+        val server = ServerSocket(0, 50, InetAddress.getLoopbackAddress())
+        val worker = thread(isDaemon = true) {
+            while (!server.isClosed) {
+                val socket = try { server.accept() } catch (e: Exception) { break }
+                socket.use { sock ->
+                    val reader = sock.getInputStream().bufferedReader()
+                    var cookie: String? = null
+                    while (true) {
+                        val line = reader.readLine() ?: break
+                        if (line.isEmpty()) break
+                        if (line.startsWith("Cookie:", ignoreCase = true)) cookie = line.substringAfter(":").trim()
+                    }
+                    hits += cookie
+                    val (status, body) = if (cookie == goodCookie) {
+                        "200 OK" to """{"id": 1, "seasonId": 2026, "settings": {"name": "Real League"}, "teams": [], "schedule": []}"""
+                    } else {
+                        "401 Unauthorized" to """{"messages": ["You are not authorized to view this League."], "details": [{"type": "AUTH_LEAGUE_NOT_VISIBLE"}]}"""
+                    }
+                    val bytes = body.toByteArray()
+                    val out = sock.getOutputStream()
+                    out.write("HTTP/1.1 $status\r\nContent-Type: application/json\r\nContent-Length: ${bytes.size}\r\nConnection: close\r\n\r\n".toByteArray())
+                    out.write(bytes)
+                    out.flush()
+                }
             }
-            val bytes = body.toByteArray()
-            ex.sendResponseHeaders(code, bytes.size.toLong())
-            ex.responseBody.use { it.write(bytes) }
         }
-        server.start()
         try {
-            block("http://127.0.0.1:${server.address.port}", hits)
+            block("http://127.0.0.1:${server.localPort}", hits)
         } finally {
-            server.stop(0)
+            server.close()
+            worker.join(1000)
         }
     }
 
