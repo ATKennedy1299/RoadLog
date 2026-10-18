@@ -26,7 +26,8 @@ import androidx.compose.ui.unit.dp
 import com.fantasyanalyzer.analysis.Outlook
 import com.fantasyanalyzer.analysis.PlayoffOddsRow
 import com.fantasyanalyzer.analysis.fmt1
-import com.fantasyanalyzer.data.INACTIVE_SLOTS
+import com.fantasyanalyzer.data.IR
+import com.fantasyanalyzer.data.RosterSpot
 import com.fantasyanalyzer.data.Player
 import com.fantasyanalyzer.data.slotName
 import java.util.Locale
@@ -113,24 +114,24 @@ internal fun LazyListScope.myTeamTab(d: Dashboard, myTeam: Int?, onPick: (Int) -
         return
     }
     item {
-        val advice = remember(d, myTeam) { Outlook.startSit(roster, d.league.lineupSlotCounts) }
-        val matchup = remember(d, myTeam) { Outlook.matchup(d.league, outlook, myTeam) }
+        // One clock per load, so every number on the screen agrees; refresh to update.
+        val now = remember(d) { System.currentTimeMillis() }
+        val advice = remember(d, myTeam) { Outlook.startSit(roster, d.league.lineupSlotCounts, now) }
+        val matchup = remember(d, myTeam) { Outlook.matchup(d.league, outlook, myTeam, now) }
 
         if (matchup != null) {
-            SectionTitle("Week ${outlook.week} matchup", "From ESPN's projections before kickoff.")
+            SectionTitle(
+                "Week ${outlook.week} matchup",
+                if (matchup.started) "Points so far, with projected finals. Tap refresh for the latest."
+                else "Nobody has played yet; projections from ESPN.",
+            )
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("You", style = MaterialTheme.typography.labelMedium)
-                            Text(fmt1(matchup.myProjection), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                        }
+                        ScoreColumn("You", matchup.myActual, matchup.myProjection, Alignment.Start, Modifier.weight(1f))
                         Text("vs", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
-                            Text(d.league.teamName(matchup.opponentId), style = MaterialTheme.typography.labelMedium,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(fmt1(matchup.opponentProjection), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                        }
+                        ScoreColumn(d.league.teamName(matchup.opponentId), matchup.opponentActual, matchup.opponentProjection,
+                            Alignment.End, Modifier.weight(1f))
                     }
                     LinearProgressIndicator(
                         progress = { matchup.winProbability.toFloat() },
@@ -163,7 +164,7 @@ internal fun LazyListScope.myTeamTab(d: Dashboard, myTeam: Int?, onPick: (Int) -
             }
         }
 
-        SectionTitle("Start / sit")
+        SectionTitle("Start / sit", "Players whose games have started can't be moved, so they're left out.")
         if (advice.start.isEmpty() && advice.sit.isEmpty()) {
             Text("✓ Your lineup is already the best by ESPN's projections.", color = Good)
         } else {
@@ -183,37 +184,84 @@ internal fun LazyListScope.myTeamTab(d: Dashboard, myTeam: Int?, onPick: (Int) -
             }
         }
 
-        SectionTitle("Your roster", "🔒 = game already started")
         val bestSlot = advice.bestLineup.associate { (slot, p) -> p.id to slot }
+        val slotOrder = d.league.lineupSlotCounts.keys.sorted()
+        val starters = roster.filter { it.started }
+            .sortedWith(compareBy<RosterSpot> { slotOrder.indexOf(it.slotId).let { i -> if (i < 0) Int.MAX_VALUE else i } }
+                .thenByDescending { it.player.expected })
+        val bench = roster.filter { !it.started }
+            .sortedWith(compareBy<RosterSpot> { it.slotId == IR }.thenByDescending { it.player.expected })
+
+        SectionTitle("Starters", "🔒 = game has started")
+        RosterHeader()
+        starters.forEach { RosterRow(it, bestSlot, now) }
+        HorizontalDivider(Modifier.padding(vertical = 4.dp))
         Row(Modifier.padding(vertical = 4.dp)) {
-            listOf("Player" to 1f, "Now" to 0.4f, "Best" to 0.4f, "Proj" to 0.35f).forEach { (h, w) ->
-                Text(h, Modifier.weight(w), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-            }
+            Text("Total", Modifier.weight(1.8f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+            Text(fmt1(advice.currentActual), Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
+            Text(fmt1(advice.currentProjection), Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        val ordered = roster.sortedWith(
-            compareBy<com.fantasyanalyzer.data.RosterSpot> { it.slotId in INACTIVE_SLOTS }.thenByDescending { it.player.expected }
-        )
-        ordered.forEach { spot ->
-            val p = spot.player
-            val now = slotName(spot.slotId)
-            val best = bestSlot[p.id] ?: "BE"
-            val changed = (now == "BE" || now == "IR") != (best == "BE")
-            Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Row {
-                        Text((if (spot.locked) "🔒 " else "") + p.name, style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                        StatusChip(p)
-                    }
-                    Text(p.tag(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Text(now, Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall)
-                Text(best, Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall,
-                    color = if (changed) Good else MaterialTheme.colorScheme.onSurface,
-                    fontWeight = if (changed) FontWeight.SemiBold else FontWeight.Normal)
-                Text(p.projected?.let { fmt1(it) } ?: "—", Modifier.weight(0.35f), style = MaterialTheme.typography.bodySmall)
-            }
+
+        SectionTitle("Bench")
+        RosterHeader()
+        bench.forEach { RosterRow(it, bestSlot, now) }
+    }
+}
+
+@Composable
+private fun ScoreColumn(name: String, actual: Double, projected: Double, align: Alignment.Horizontal, modifier: Modifier) {
+    Column(modifier, horizontalAlignment = align) {
+        Text(name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(fmt1(actual), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
+        Text("Proj ${fmt1(projected)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun RosterHeader() {
+    Row(Modifier.padding(vertical = 4.dp)) {
+        listOf("Player" to 1f, "Slot" to 0.4f, "Best" to 0.4f).forEach { (h, w) ->
+            Text(h, Modifier.weight(w), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
         }
+        listOf("Pts", "Proj").forEach { h ->
+            Text(h, Modifier.weight(0.4f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.End)
+        }
+    }
+}
+
+@Composable
+private fun RosterRow(spot: RosterSpot, bestSlot: Map<Long, String>, now: Long) {
+    val p = spot.player
+    val slot = slotName(spot.slotId)
+    val best = bestSlot[p.id] ?: "BE"
+    val changed = (slot == "BE" || slot == "IR") != (best == "BE")
+    val locked = spot.isLocked(now)
+    val gameState = when {
+        !p.gameStarted(now) -> null
+        p.remainingShare(now) > 0 -> "Live"
+        else -> "Final"
+    }
+    Row(Modifier.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Row {
+                Text((if (locked) "🔒 " else "") + p.name, style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                StatusChip(p)
+            }
+            Text(listOfNotNull(p.tag(), gameState).joinToString(" · "), style = MaterialTheme.typography.labelSmall,
+                color = if (gameState == "Live") Good else MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        Text(slot, Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall)
+        Text(best, Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall,
+            color = if (changed && !locked) Good else MaterialTheme.colorScheme.onSurface,
+            fontWeight = if (changed && !locked) FontWeight.SemiBold else FontWeight.Normal)
+        Text(if (p.gameStarted(now)) fmt1(p.pointsSoFar(now)) else "—", Modifier.weight(0.4f),
+            style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
+        Text(p.projected?.let { fmt1(it) } ?: "—", Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall,
+            textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

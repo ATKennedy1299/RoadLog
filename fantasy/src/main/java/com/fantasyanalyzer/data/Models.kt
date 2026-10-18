@@ -101,6 +101,10 @@ data class Player(
     val percentChange: Double = 0.0,
     /** Free agent list only: on waivers (needs a claim) rather than free to add. */
     val onWaivers: Boolean = false,
+    /** Points scored so far this week; null until their game starts. */
+    val actual: Double? = null,
+    /** Kickoff of their NFL game this week (epoch ms), when the pro schedule is known. */
+    val gameStart: Long? = null,
 ) {
     val isOut: Boolean get() = onBye || injuryStatus in OUT_STATUSES
 
@@ -109,14 +113,43 @@ data class Player(
 
     val recentAvg: Double? get() = recentPoints.takeIf { it.isNotEmpty() }?.average()
 
+    /** Their game has kicked off: by the schedule if we have it, else because ESPN has points for them. */
+    fun gameStarted(now: Long): Boolean = gameStart?.let { it <= now } ?: (actual != null)
+
+    /** Points scored so far, counting only once their game has kicked off. */
+    fun pointsSoFar(now: Long): Double = if (gameStarted(now)) actual ?: 0.0 else 0.0
+
+    /** Share of their game still to play: 1 before kickoff, 0 once it's (probably) over. */
+    fun remainingShare(now: Long): Double {
+        if (!gameStarted(now)) return 1.0
+        val start = gameStart ?: return 0.0 // no schedule: treat points as final
+        return (1.0 - (now - start).toDouble() / GAME_LENGTH_MS).coerceIn(0.0, 1.0)
+    }
+
+    /** Points expected by the end of their game: scored so far plus the projection for what's left. */
+    fun expectedFinal(now: Long): Double {
+        if (!gameStarted(now)) return expected
+        return (actual ?: 0.0) + (projected ?: 0.0) * remainingShare(now)
+    }
+
     companion object {
         val OUT_STATUSES = setOf("OUT", "INJURY_RESERVE", "SUSPENSION")
+
+        /** Kickoff to final whistle, roughly. */
+        const val GAME_LENGTH_MS = 3L * 60 * 60 * 1000 + 15 * 60 * 1000
     }
 }
 
+/** [locked] is ESPN's own lineup-lock flag, when it sends one. */
 data class RosterSpot(val player: Player, val slotId: Int, val locked: Boolean = false) {
     val started: Boolean get() = slotId !in INACTIVE_SLOTS
+
+    /** Can't be moved: ESPN says so, or the player's game has kicked off. */
+    fun isLocked(now: Long): Boolean = locked || player.gameStarted(now)
 }
+
+/** An NFL team: abbreviation, bye week, and kickoff time (epoch ms) of its game in each NFL week. */
+data class ProTeam(val abbrev: String, val byeWeek: Int, val kickoffs: Map<Int, Long> = emptyMap())
 
 /** The week ahead: every team's current roster with projections, plus the free agent pool. */
 data class WeekOutlook(

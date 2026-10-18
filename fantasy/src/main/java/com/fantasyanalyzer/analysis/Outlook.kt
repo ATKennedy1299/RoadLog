@@ -15,7 +15,9 @@ import kotlin.math.sqrt
 data class LineupAlert(val player: Player, val message: String, val severe: Boolean)
 
 data class StartSitAdvice(
-    /** Projected points of the lineup as it's set now. */
+    /** Points the current starters have scored so far this week. */
+    val currentActual: Double,
+    /** Projected final points of the lineup as it's set now (actual so far plus what's left). */
     val currentProjection: Double,
     /** Projected points of the best lineup from this roster. */
     val bestProjection: Double,
@@ -34,9 +36,14 @@ data class StartSitAdvice(
 
 data class MatchupOutlook(
     val opponentId: Int,
+    val myActual: Double,
+    val opponentActual: Double,
+    /** Projected finals: points so far plus projections for games still to play. */
     val myProjection: Double,
     val myBestProjection: Double,
     val opponentProjection: Double,
+    /** True once any starter on either side has kicked off. */
+    val started: Boolean,
     /** Chance to win with the lineup as set. */
     val winProbability: Double,
     /** Chance to win with the best lineup. */
@@ -59,13 +66,13 @@ data class WaiverReport(
 object Outlook {
 
     /** Best lineup by ESPN projections, keeping players whose games have started where they are. */
-    fun startSit(roster: List<RosterSpot>, slotCounts: Map<Int, Int>): StartSitAdvice {
-        val lockedStarters = roster.filter { it.locked && it.started }
+    fun startSit(roster: List<RosterSpot>, slotCounts: Map<Int, Int>, now: Long = System.currentTimeMillis()): StartSitAdvice {
+        val lockedStarters = roster.filter { it.isLocked(now) && it.started }
         val counts = slotCounts.toMutableMap()
         lockedStarters.forEach { counts[it.slotId] = ((counts[it.slotId] ?: 0) - 1).coerceAtLeast(0) }
 
         // Movable players; anyone in an IR slot has to be activated before they can start.
-        val movable = roster.filter { !it.locked && it.slotId != IR }
+        val movable = roster.filter { !it.isLocked(now) && it.slotId != IR }
         val entries = movable.map { RosterEntry(it.player.name, it.player.position, it.slotId, it.player.expected, it.player.eligibleSlots, it.player.id) }
         val opt = Analysis.optimalLineup(entries, counts)
         val byEntry = entries.zip(movable).toMap()
@@ -75,12 +82,14 @@ object Outlook {
         val currentStarters = roster.filter { it.started }
         val totalSlots = slotCounts.filterKeys { it !in INACTIVE_SLOTS }.values.sum()
         return StartSitAdvice(
-            currentProjection = currentStarters.sumOf { it.player.expected },
-            bestProjection = lockedStarters.sumOf { it.player.expected } + opt.total,
+            currentActual = currentStarters.sumOf { it.player.pointsSoFar(now) },
+            currentProjection = currentStarters.sumOf { it.player.expectedFinal(now) },
+            bestProjection = lockedStarters.sumOf { it.player.expectedFinal(now) } + opt.total,
             bestLineup = lockedStarters.map { slotName(it.slotId) to it.player } + picks.map { (slot, spot) -> slot to spot.player },
             start = pickedSpots.filter { !it.started }.map { it.player }.sortedByDescending { it.expected },
             sit = movable.filter { it.started && it !in pickedSpots }.map { it.player }.sortedBy { it.expected },
-            alerts = currentStarters.mapNotNull { alertFor(it.player) }.sortedByDescending { it.severe },
+            // Nothing to warn about for players who can't be moved any more.
+            alerts = currentStarters.filter { !it.isLocked(now) }.mapNotNull { alertFor(it.player) }.sortedByDescending { it.severe },
             emptySlots = (totalSlots - currentStarters.size).coerceAtLeast(0),
         )
     }
@@ -96,24 +105,46 @@ object Outlook {
         else -> null
     }
 
-    /** This week's matchup for [teamId] by ESPN projections, with win chances from the league's scoring spread. */
-    fun matchup(league: League, outlook: WeekOutlook, teamId: Int): MatchupOutlook? {
+    /**
+     * This week's matchup for [teamId]: points so far, projected finals, and win
+     * chances. The uncertainty shrinks as each side's games get played.
+     */
+    fun matchup(league: League, outlook: WeekOutlook, teamId: Int, now: Long = System.currentTimeMillis()): MatchupOutlook? {
         val m = league.matchups.firstOrNull {
             it.week == league.currentWeek && !it.complete && (it.homeId == teamId || it.awayId == teamId)
         } ?: return null
         val oppId = (if (m.homeId == teamId) m.awayId else m.homeId) ?: return null
         val mine = outlook.rosters[teamId] ?: return null
         val theirs = outlook.rosters[oppId] ?: return null
-        val advice = startSit(mine, league.lineupSlotCounts)
-        val opp = theirs.filter { it.started }.sumOf { it.player.expected }
-        val sd = Odds.scoreModel(league).sd * sqrt(2.0)
+        val advice = startSit(mine, league.lineupSlotCounts, now)
+        val oppStarters = theirs.filter { it.started }
+        val oppFinal = oppStarters.sumOf { it.player.expectedFinal(now) }
+        val myStarters = mine.filter { it.started }
+
+        // A team's weekly spread, scaled by the share of its projected points still to come.
+        val teamSd = Odds.scoreModel(league).sd
+        fun sdLeft(starters: List<RosterSpot>): Double {
+            val total = starters.sumOf { it.player.expected }
+            if (total <= 0) return 0.0
+            val left = starters.sumOf { it.player.expected * it.player.remainingShare(now) }
+            return teamSd * sqrt(left / total)
+        }
+        val sd = sqrt(sdLeft(myStarters).let { it * it } + sdLeft(oppStarters).let { it * it })
+        fun winChance(mine: Double): Double = if (sd < 1e-6) {
+            when { mine > oppFinal -> 1.0; mine < oppFinal -> 0.0; else -> 0.5 }
+        } else {
+            normalCdf((mine - oppFinal) / sd)
+        }
         return MatchupOutlook(
             opponentId = oppId,
+            myActual = advice.currentActual,
+            opponentActual = oppStarters.sumOf { it.player.pointsSoFar(now) },
             myProjection = advice.currentProjection,
             myBestProjection = advice.bestProjection,
-            opponentProjection = opp,
-            winProbability = normalCdf((advice.currentProjection - opp) / sd),
-            winProbabilityBest = normalCdf((advice.bestProjection - opp) / sd),
+            opponentProjection = oppFinal,
+            started = (myStarters + oppStarters).any { it.player.gameStarted(now) },
+            winProbability = winChance(advice.currentProjection),
+            winProbabilityBest = winChance(advice.bestProjection),
         )
     }
 

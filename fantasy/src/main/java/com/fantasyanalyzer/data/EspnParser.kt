@@ -107,17 +107,24 @@ object EspnParser {
         return rosters
     }
 
-    /** Pro team id -> (abbreviation, bye week), from the season's pro schedule. */
-    fun parseProTeams(raw: JSONObject): Map<Int, Pair<String, Int>> =
-        raw.optJSONObject("settings")?.optJSONArray("proTeams").objects().associate {
-            it.optInt("id") to (it.optString("abbrev").uppercase() to it.optInt("byeWeek", 0))
+    /** Pro team id -> abbreviation, bye week and kickoff times, from the season's pro schedule. */
+    fun parseProTeams(raw: JSONObject): Map<Int, ProTeam> =
+        raw.optJSONObject("settings")?.optJSONArray("proTeams").objects().associate { t ->
+            val kickoffs = mutableMapOf<Int, Long>()
+            t.optJSONObject("proGamesByScoringPeriod")?.let { byWeek ->
+                for (k in byWeek.keys()) {
+                    val date = byWeek.optJSONArray(k).objects().firstOrNull()?.optLong("date", 0L) ?: 0L
+                    if (date > 0) k.toIntOrNull()?.let { kickoffs[it] = date }
+                }
+            }
+            t.optInt("id") to ProTeam(t.optString("abbrev").uppercase(), t.optInt("byeWeek", 0), kickoffs)
         }
 
     /**
      * Every team's roster for [week] with ESPN's projections, from a box score
      * response requested for that week.
      */
-    fun parseCurrentRosters(raw: JSONObject, week: Int, proTeams: Map<Int, Pair<String, Int>>): Map<Int, List<RosterSpot>> {
+    fun parseCurrentRosters(raw: JSONObject, week: Int, proTeams: Map<Int, ProTeam>): Map<Int, List<RosterSpot>> {
         val rosters = mutableMapOf<Int, List<RosterSpot>>()
         for (m in raw.optJSONArray("schedule").objects()) {
             for (side in listOf("home", "away")) {
@@ -130,7 +137,7 @@ object EspnParser {
                     RosterSpot(
                         player = parsePlayer(pool, week, proTeams),
                         slotId = e.optInt("lineupSlotId", BENCH),
-                        locked = pool.optBoolean("lineupLocked", false),
+                        locked = pool.optBoolean("lineupLocked", false) || e.optBoolean("lineupLocked", false),
                     )
                 }
                 if (spots.isNotEmpty()) rosters[team.getInt("teamId")] = spots
@@ -140,16 +147,18 @@ object EspnParser {
     }
 
     /** Free agents and waiver-wire players from a `kona_player_info` response. */
-    fun parseFreeAgents(raw: JSONObject, week: Int, proTeams: Map<Int, Pair<String, Int>>): List<Player> =
+    fun parseFreeAgents(raw: JSONObject, week: Int, proTeams: Map<Int, ProTeam>): List<Player> =
         raw.optJSONArray("players").objects()
             .filter { it.optString("status", "FREEAGENT") in setOf("FREEAGENT", "WAIVERS") }
             .map { parsePlayer(it, week, proTeams).copy(onWaivers = it.optString("status") == "WAIVERS") }
 
     /** [pool] is a `playerPoolEntry` (or free agent list item): `{id, player: {...}, ...}`. */
-    fun parsePlayer(pool: JSONObject, week: Int, proTeams: Map<Int, Pair<String, Int>>): Player {
+    fun parsePlayer(pool: JSONObject, week: Int, proTeams: Map<Int, ProTeam>): Player {
         val player = pool.optJSONObject("player") ?: JSONObject()
         val stats = player.optJSONArray("stats").objects()
         val projected = stats.firstOrNull { it.optInt("scoringPeriodId") == week && it.optInt("statSourceId", -1) == 1 }
+            ?.optDouble("appliedTotal", 0.0)?.orZero()
+        val actual = stats.firstOrNull { it.optInt("scoringPeriodId") == week && it.optInt("statSourceId", -1) == 0 }
             ?.optDouble("appliedTotal", 0.0)?.orZero()
         val recent = stats
             .filter { it.optInt("statSourceId", -1) == 0 && it.optInt("scoringPeriodId") in (week - 3) until week }
@@ -157,7 +166,7 @@ object EspnParser {
             .distinctBy { it.optInt("scoringPeriodId") }
             .map { it.optDouble("appliedTotal", 0.0).orZero() }
         val proTeamId = player.optInt("proTeamId", 0)
-        val (proAbbrev, bye) = proTeams[proTeamId] ?: ((PRO_TEAMS[proTeamId] ?: "FA") to 0)
+        val pro = proTeams[proTeamId] ?: ProTeam(PRO_TEAMS[proTeamId] ?: "FA", 0)
         val elig = player.optJSONArray("eligibleSlots")
         val ownership = player.optJSONObject("ownership")
         val status = player.optString("injuryStatus").takeIf { it.isNotBlank() && it != "null" }
@@ -167,14 +176,16 @@ object EspnParser {
             id = player.optLong("id", pool.optLong("id", 0)),
             name = player.optString("fullName", "Unknown"),
             position = POSITIONS[player.optInt("defaultPositionId", -1)] ?: "?",
-            proTeam = proAbbrev,
+            proTeam = pro.abbrev,
             eligibleSlots = elig?.let { a -> (0 until a.length()).map { a.getInt(it) } } ?: emptyList(),
             injuryStatus = status.uppercase(),
             projected = projected,
             recentPoints = recent,
-            onBye = bye == week,
+            onBye = pro.byeWeek == week,
             percentOwned = ownership?.optDouble("percentOwned", 0.0)?.orZero() ?: 0.0,
             percentChange = ownership?.optDouble("percentChange", 0.0)?.orZero() ?: 0.0,
+            actual = actual,
+            gameStart = pro.kickoffs[week],
         )
     }
 

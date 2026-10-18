@@ -6,6 +6,7 @@ import com.fantasyanalyzer.data.EspnParser
 import com.fantasyanalyzer.data.League
 import com.fantasyanalyzer.data.Matchup
 import com.fantasyanalyzer.data.Player
+import com.fantasyanalyzer.data.ProTeam
 import com.fantasyanalyzer.data.RosterSpot
 import com.fantasyanalyzer.data.SampleData
 import com.fantasyanalyzer.data.Team
@@ -130,7 +131,7 @@ class OutlookTest {
                 "stats": []}}}]}}}]}
             """
         )
-        val pro = mapOf(12 to ("KC" to 10), 8 to ("DET" to 7))
+        val pro = mapOf(12 to ProTeam("KC", 10), 8 to ProTeam("DET", 7))
         val roster = EspnParser.parseCurrentRosters(raw, 7, pro).getValue(2)
         val rb = roster[0].player
         assertEquals(13.4, rb.projected!!, 1e-9)
@@ -245,5 +246,77 @@ class OutlookTest {
         assertTrue(t1.averageTeamWins > 0.5)
         assertEquals((1..4).toList(), sos.map { it.rank })
         assertNotNull(t1.pastOppAvg)
+    }
+
+    private val hour = 60 * 60 * 1000L
+
+    private fun live(id: Long, pos: String, proj: Double, actual: Double?, kickoff: Long?) =
+        p(id, pos, proj).copy(actual = actual, gameStart = kickoff)
+
+    @Test
+    fun kickoffLocksPlayersEvenWithoutEspnFlag() {
+        val now = 100 * hour
+        val played = RosterSpot(live(1, "RB", 10.0, 3.0, now - 5 * hour), 2) // game over, scored 3
+        val upcoming = RosterSpot(live(2, "RB", 8.0, null, now + 2 * hour), 20)
+        val noSchedule = RosterSpot(live(3, "WR", 9.0, 14.0, null), 4) // ESPN has points: it's started
+        assertTrue(played.isLocked(now))
+        assertFalse(upcoming.isLocked(now))
+        assertTrue(noSchedule.isLocked(now))
+        val a = Outlook.startSit(listOf(played, upcoming, noSchedule, RosterSpot(p(4, "QB", 20.0), 0)), counts, now)
+        // The 3-point RB is locked in; the bench RB can only take the empty FLEX.
+        assertTrue(a.sit.isEmpty())
+        assertEquals(listOf(2L), a.start.map { it.id })
+        assertEquals(3.0 + 14.0, a.currentActual, 1e-9)
+        assertEquals(3.0 + 14.0 + 20.0, a.currentProjection, 1e-9)
+        assertEquals(3.0 + 14.0 + 20.0 + 8.0, a.bestProjection, 1e-9)
+    }
+
+    @Test
+    fun inProgressGameCountsPointsPlusRestOfProjection() {
+        val start = 100 * hour
+        val halfway = start + Player.GAME_LENGTH_MS / 2
+        val pl = live(1, "WR", 10.0, 6.0, start)
+        assertEquals(6.0 + 5.0, pl.expectedFinal(halfway), 1e-9)
+        assertEquals(10.0, pl.expectedFinal(start - 1), 1e-9) // before kickoff: projection
+        assertEquals(6.0, pl.expectedFinal(start + 10 * hour), 1e-9) // after: what they scored
+    }
+
+    @Test
+    fun liveMatchupUsesActualPointsAndTightensWhenDone() {
+        val teams = (1..2).associateWith { Team(it, "T$it", "T$it", "") }
+        val week = listOf(Matchup(1, 1, 2, 0.0, 0.0, "UNDECIDED", false))
+        val lg = League(1, 2026, "L", teams, week, 1, 1, mapOf(0 to 1, 2 to 1, 20 to 2))
+        val kickoff = 100 * hour
+        val done = kickoff + 10 * hour
+        val outlook = WeekOutlook(1, mapOf(
+            1 to listOf(RosterSpot(live(1, "QB", 20.0, 25.0, kickoff), 0), RosterSpot(live(2, "RB", 10.0, 12.0, kickoff), 2)),
+            2 to listOf(RosterSpot(live(3, "QB", 22.0, 18.0, kickoff), 0), RosterSpot(live(4, "RB", 12.0, 10.0, kickoff), 2)),
+        ), emptyList())
+        val m = Outlook.matchup(lg, outlook, 1, done)!!
+        assertTrue(m.started)
+        assertEquals(37.0, m.myActual, 1e-9)
+        assertEquals(28.0, m.opponentActual, 1e-9)
+        assertEquals(37.0, m.myProjection, 1e-9)
+        // Every game is over and I'm ahead: it's a win.
+        assertEquals(1.0, m.winProbability, 1e-9)
+        // Before kickoff the same matchup is a coin flip-ish projection game.
+        val pre = Outlook.matchup(lg, outlook, 1, kickoff - hour)!!
+        assertFalse(pre.started)
+        assertEquals(0.0, pre.myActual, 1e-9)
+        assertTrue(pre.winProbability in 0.05..0.95)
+    }
+
+    @Test
+    fun parsesKickoffsFromProSchedule() {
+        val raw = JSONObject(
+            """
+            {"settings": {"proTeams": [{"id": 12, "abbrev": "kc", "byeWeek": 10,
+              "proGamesByScoringPeriod": {"7": [{"date": 1760900000000, "homeProTeamId": 12, "awayProTeamId": 8}]}}]}}
+            """
+        )
+        val kc = EspnParser.parseProTeams(raw).getValue(12)
+        assertEquals("KC", kc.abbrev)
+        assertEquals(10, kc.byeWeek)
+        assertEquals(1760900000000L, kc.kickoffs[7])
     }
 }
