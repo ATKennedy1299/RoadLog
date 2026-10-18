@@ -220,21 +220,55 @@ fun PlayerSheet(p: Player, d: Dashboard, onDismiss: () -> Unit) {
             }
             p.statLine?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 
-            val log = gameLog(d, p.id)
-            if (log.isNotEmpty()) {
-                SectionTitle("Game log", "Season ${fmt1(log.sumOf { it.second })} pts · avg ${fmt1(log.map { it.second }.average())}")
-                Row {
-                    Text("Week", Modifier.width(64.dp), style = MaterialTheme.typography.labelMedium, color = muted)
-                    Text("Points", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = muted, textAlign = TextAlign.End)
-                    Text("Proj", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = muted, textAlign = TextAlign.End)
+            // The whole season, ESPN game-log style, with how tough each opponent is for this position.
+            val rows = seasonSchedule(d, p)
+            val played = rows.mapNotNull { it.points }
+            if (rows.isNotEmpty()) {
+                SectionTitle(
+                    "Schedule",
+                    (if (played.isNotEmpty()) "Season ${fmt1(played.sum())} pts · avg ${fmt1(played.average())}. " else "") +
+                        "Opponent's rank vs ${p.position}s: green is a soft matchup, red a tough one.",
+                )
+                Row(Modifier.padding(vertical = 4.dp)) {
+                    Text("WK", Modifier.width(40.dp), style = MaterialTheme.typography.labelMedium, color = muted, fontWeight = FontWeight.Bold)
+                    Text("OPP", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = muted, fontWeight = FontWeight.Bold)
+                    Text("PTS", Modifier.width(56.dp), style = MaterialTheme.typography.labelMedium, color = muted,
+                        fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
+                    Text("PROJ", Modifier.width(56.dp), style = MaterialTheme.typography.labelMedium, color = muted,
+                        fontWeight = FontWeight.Bold, textAlign = TextAlign.End)
                 }
-                log.forEach { (week, pts, proj) ->
-                    Row {
-                        Text("Wk $week", Modifier.width(64.dp), style = MaterialTheme.typography.bodySmall)
-                        Text(fmt1(pts), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold,
-                            textAlign = TextAlign.End,
-                            color = if (proj != null && pts >= proj) Good else if (proj != null) Bad else Color.Unspecified)
-                        Text(proj?.let { fmt1(it) } ?: "–", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                rows.forEach { r ->
+                    val current = r.week == d.league.currentScoringPeriod
+                    Row(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(6.dp))
+                            .background(if (current) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent)
+                            .padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text("${r.week}", Modifier.width(40.dp), style = MaterialTheme.typography.bodySmall,
+                            fontWeight = if (current) FontWeight.Bold else FontWeight.Normal)
+                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            Text(r.opponent, style = MaterialTheme.typography.bodySmall)
+                            r.rank?.let { rank ->
+                                Text(
+                                    ordinal(rank),
+                                    Modifier.padding(start = 6.dp).clip(RoundedCornerShape(4.dp))
+                                        .background((rankColor(rank) ?: muted).copy(alpha = 0.16f))
+                                        .padding(horizontal = 5.dp, vertical = 1.dp),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    fontWeight = FontWeight.Bold,
+                                    color = rankColor(rank) ?: muted,
+                                )
+                            }
+                        }
+                        Text(r.points?.let { fmt1(it) } ?: "–", Modifier.width(56.dp), style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End,
+                            color = when {
+                                r.points == null || r.projected == null -> Color.Unspecified
+                                r.points >= r.projected -> Good
+                                else -> Bad
+                            })
+                        Text(r.projected?.let { fmt1(it) } ?: "–", Modifier.width(56.dp), style = MaterialTheme.typography.bodySmall,
                             color = muted, textAlign = TextAlign.End)
                     }
                 }
@@ -242,42 +276,46 @@ fun PlayerSheet(p: Player, d: Dashboard, onDismiss: () -> Unit) {
                 SectionTitle("Recent games")
                 Text(p.recentPoints.joinToString(" · ") { fmt1(it) }, style = MaterialTheme.typography.bodyMedium)
             }
-
-            val upcoming = upcoming(d, p)
-            if (upcoming.isNotEmpty()) {
-                SectionTitle("Coming up", "Opponent's rank against ${p.position}s: green is a soft matchup, red a tough one.")
-                upcoming.forEach { (week, text, rank) ->
-                    Row {
-                        Text("Wk $week", Modifier.width(64.dp), style = MaterialTheme.typography.bodySmall)
-                        Text(text, style = MaterialTheme.typography.bodySmall, color = rankColor(rank) ?: Color.Unspecified)
-                    }
-                }
-            }
             HorizontalDivider(Modifier.padding(top = 8.dp))
         }
     }
 }
 
-/** Points by week from the league's box scores (any team's roster that week). */
-private fun gameLog(d: Dashboard, playerId: Long): List<Triple<Int, Double, Double?>> =
-    d.data.boxScores.toSortedMap().mapNotNull { (week, rosters) ->
-        rosters.values.asSequence().flatten().firstOrNull { it.playerId == playerId }?.let { Triple(week, it.points, it.projected) }
-    }
+private class ScheduleRow(val week: Int, val opponent: String, val rank: Int?, val points: Double?, val projected: Double?)
 
-/** The next few NFL weeks: opponent (or bye) and how that defense ranks against the position. */
-private fun upcoming(d: Dashboard, p: Player): List<Triple<Int, String, Int?>> {
+/**
+ * Every NFL week of the season for [p]: opponent (or BYE), that defense's
+ * season rank against the position, and points/projection from the league's
+ * box scores for weeks already played.
+ */
+private fun seasonSchedule(d: Dashboard, p: Player): List<ScheduleRow> {
+    val league = d.league
+    // NFL week -> this player's box score line, from whichever fantasy roster had them.
+    val byWeek = d.data.boxScores.flatMap { (matchupWeek, rosters) ->
+        val nflWeek = league.matchupPeriods[matchupWeek]?.singleOrNull() ?: matchupWeek
+        rosters.values.flatten().filter { it.playerId == p.id }.map { nflWeek to it }
+    }.toMap()
     val pro = d.data.proTeams
-    val (_, team) = pro.entries.firstOrNull { it.value.abbrev == p.proTeam }?.toPair() ?: return emptyList()
+    val team = pro.values.firstOrNull { it.abbrev == p.proTeam }
     val posId = POSITIONS.entries.firstOrNull { it.value == p.position }?.key
-    val from = d.league.currentScoringPeriod + 1
-    return (from until from + 4).filter { it <= d.league.finalScoringPeriod }.map { week ->
+    val lastWeek = maxOf(league.finalScoringPeriod, byWeek.keys.maxOrNull() ?: 0)
+    if (team == null) {
+        return byWeek.toSortedMap().map { (w, e) -> ScheduleRow(w, "–", null, e.points, e.projected) }
+    }
+    return (1..lastWeek).map { week ->
         val g = team.games[week]
+        val entry = byWeek[week]
         if (g == null || team.byeWeek == week) {
-            Triple(week, "BYE", null)
+            ScheduleRow(week, "BYE", null, entry?.points, entry?.projected)
         } else {
             val opp = pro[g.opponentId]?.abbrev ?: "?"
-            val rank = posId?.let { d.data.ratings[it]?.get(g.opponentId) }
-            Triple(week, (if (g.home) opp else "@$opp") + (rank?.let { " (${ordinal(it)})" } ?: "") + " · " + kickoffText(g.kickoff), rank)
+            ScheduleRow(
+                week,
+                if (g.home) opp else "@$opp",
+                posId?.let { d.data.ratings[it]?.get(g.opponentId) },
+                entry?.points ?: if (week == league.currentScoringPeriod && p.gameStarted(System.currentTimeMillis())) p.actual else null,
+                entry?.projected ?: if (week == league.currentScoringPeriod) p.projected else null,
+            )
         }
     }
 }
