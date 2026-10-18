@@ -33,6 +33,21 @@ data class PlayoffOdds(
     val usesDivisions: Boolean,
 )
 
+data class ScheduleRow(
+    val teamId: Int,
+    val team: String,
+    /** Remaining regular-season opponents, in week order. */
+    val opponents: List<Int>,
+    /** Average expected score of those opponents; null with no games left. */
+    val remainingOppAvg: Double?,
+    /** Wins a league-average team would expect against this schedule. */
+    val averageTeamWins: Double,
+    /** Average expected score of opponents already played. */
+    val pastOppAvg: Double?,
+    /** 1 = hardest remaining schedule. */
+    val rank: Int,
+)
+
 object Odds {
     /** Prior weight, in games, pulling each team's average toward the league's. */
     private const val SHRINK_GAMES = 2.0
@@ -180,6 +195,35 @@ object Odds {
             )
         }.sortedWith(compareByDescending<PlayoffOddsRow> { it.playoffPct }.thenByDescending { it.champPct ?: 0.0 }.thenByDescending { it.projectedWins })
         return PlayoffOdds(rows, spots, byes, simulations, remaining.size, usesDivisions)
+    }
+
+    /**
+     * Remaining strength of schedule: how good each team's remaining opponents
+     * are, judged by the same expected scores the playoff odds use. Hardest first.
+     */
+    fun strengthOfSchedule(league: League): List<ScheduleRow> {
+        val model = scoreModel(league)
+        val leagueAvg = model.means.values.average()
+        val sd = model.sd * sqrt(2.0)
+        val regular = league.matchups.filter { !it.isPlayoff && it.awayId != null }.sortedBy { it.week }
+        fun opponents(id: Int, complete: Boolean) = regular
+            .filter { it.complete == complete && (it.homeId == id || it.awayId == id) }
+            .map { if (it.homeId == id) it.awayId!! else it.homeId }
+        val rows = league.teams.keys.map { id ->
+            val left = opponents(id, complete = false)
+            val past = opponents(id, complete = true)
+            ScheduleRow(
+                teamId = id,
+                team = league.teamName(id),
+                opponents = left,
+                remainingOppAvg = left.takeIf { it.isNotEmpty() }?.map { model.means.getValue(it) }?.average(),
+                averageTeamWins = left.sumOf { Outlook.normalCdf((leagueAvg - model.means.getValue(it)) / sd) },
+                pastOppAvg = past.takeIf { it.isNotEmpty() }?.map { model.means.getValue(it) }?.average(),
+                rank = 0,
+            )
+        }
+        return rows.sortedByDescending { it.remainingOppAvg ?: Double.NEGATIVE_INFINITY }
+            .mapIndexed { i, r -> r.copy(rank = i + 1) }
     }
 
     /** Team indices in seed order (index 0 = 1st seed), [spots] long. */

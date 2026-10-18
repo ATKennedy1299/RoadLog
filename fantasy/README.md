@@ -18,6 +18,9 @@ project and CI.
 - **Playoffs**: odds of making the playoffs, getting a bye and winning the
   title, projected wins, average seed, and what your next game is worth (odds
   if you win vs. lose), from 10,000 simulations of the rest of the season.
+  Below that, remaining strength of schedule: every team ranked by how good
+  its remaining opponents are, with how many of those games an average team
+  would win, and your remaining opponents listed.
 - **Standings**: record, points for/against, all-play record (your record if
   you'd played every team every week), expected wins, and luck.
 - **Power rankings**: 50% all-play win rate, 30% season scoring average, 20%

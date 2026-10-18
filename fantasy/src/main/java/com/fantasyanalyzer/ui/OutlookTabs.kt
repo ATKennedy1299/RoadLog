@@ -355,6 +355,7 @@ internal fun LazyListScope.playoffsTab(d: Dashboard, myTeam: Int?) {
             )
         }
     }
+    scheduleSection(d, myTeam)
     item {
         Text(
             "How it works: each remaining game is simulated from both teams' average score (pulled slightly toward " +
@@ -365,6 +366,39 @@ internal fun LazyListScope.playoffsTab(d: Dashboard, myTeam: Int?) {
             Modifier.padding(top = 16.dp),
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+private fun LazyListScope.scheduleSection(d: Dashboard, myTeam: Int?) {
+    val rows = d.schedule.filter { it.remainingOppAvg != null }
+    if (rows.isEmpty()) return
+    val lo = rows.minOf { it.remainingOppAvg!! }
+    val hi = rows.maxOf { it.remainingOppAvg!! }
+    item {
+        SectionTitle(
+            "Remaining schedule",
+            "Hardest first: opponents' average expected score, and how many of these games an average team would win.",
+        )
+        rows.firstOrNull { it.teamId == myTeam }?.let { mine ->
+            Text(
+                "Your #${mine.rank} of ${rows.size} schedule: " +
+                    mine.opponents.joinToString(", ") { d.league.teams[it]?.abbrev?.ifBlank { null } ?: d.league.teamName(it) },
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(bottom = 8.dp),
+            )
+        }
+    }
+    items(rows, key = { "sos${it.teamId}" }) { r ->
+        // Bar spans the league's range so differences are visible; the hardest schedule is full width.
+        val frac = if (hi > lo) (0.15 + 0.85 * (r.remainingOppAvg!! - lo) / (hi - lo)).toFloat() else 0.5f
+        BarRow(
+            label = r.team,
+            fraction = frac,
+            valueText = "${fmt1(r.averageTeamWins)}/${r.opponents.size}",
+            color = if (r.teamId == myTeam) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
+            leading = "#${r.rank}",
         )
     }
 }

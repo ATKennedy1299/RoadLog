@@ -12,6 +12,7 @@ import com.fantasyanalyzer.analysis.Matrix
 import com.fantasyanalyzer.analysis.Odds
 import com.fantasyanalyzer.analysis.OptimalRecordRow
 import com.fantasyanalyzer.analysis.PlayoffOdds
+import com.fantasyanalyzer.analysis.ScheduleRow
 import com.fantasyanalyzer.analysis.Record
 import com.fantasyanalyzer.analysis.StandingRow
 import com.fantasyanalyzer.analysis.TeamGame
@@ -46,6 +47,7 @@ class Dashboard(val data: LeagueData, val signedInTeamId: Int? = null) {
     val efficiencySummary: List<EfficiencySummary> = Analysis.efficiencySummary(efficiency)
     val optimalRecord: List<OptimalRecordRow> = Analysis.optimalRecord(league, efficiency)
     val playoffOdds: PlayoffOdds = Odds.playoffOdds(league)
+    val schedule: List<ScheduleRow> = Odds.strengthOfSchedule(league)
 
     /** The user's team: their own pick if it's in this league, else the one their account manages. */
     fun myTeamId(settings: Settings): Int? =

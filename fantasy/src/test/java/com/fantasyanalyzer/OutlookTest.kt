@@ -223,4 +223,27 @@ class OutlookTest {
         assertEquals(0.841344746, Outlook.normalCdf(1.0), 1e-6)
         assertEquals(0.022750132, Outlook.normalCdf(-2.0), 1e-6)
     }
+
+    @Test
+    fun strengthOfScheduleRanksTougherOpponentsFirst() {
+        // T1 scores big; whoever still has to play T1 has the hardest schedule.
+        val teams = (1..4).associateWith { Team(it, "T$it", "T$it", "") }
+        val played = listOf(
+            Matchup(1, 1, 2, 150.0, 90.0, "HOME", false), Matchup(1, 3, 4, 100.0, 95.0, "HOME", false),
+            Matchup(2, 1, 3, 140.0, 100.0, "HOME", false), Matchup(2, 2, 4, 92.0, 98.0, "AWAY", false),
+        )
+        val left = listOf(
+            Matchup(3, 1, 4, 0.0, 0.0, "UNDECIDED", false), Matchup(3, 2, 3, 0.0, 0.0, "UNDECIDED", false),
+            Matchup(4, 9, 9, 0.0, 0.0, "UNDECIDED", true), // playoffs: not part of the schedule
+        )
+        val lg = League(1, 2026, "L", teams, played + left, 3, 3, emptyMap())
+        val sos = Odds.strengthOfSchedule(lg)
+        assertEquals(4, sos.first().teamId)
+        assertEquals(listOf(1), sos.first().opponents)
+        assertTrue(sos.first().averageTeamWins < 0.5)
+        val t1 = sos.single { it.teamId == 1 }
+        assertTrue(t1.averageTeamWins > 0.5)
+        assertEquals((1..4).toList(), sos.map { it.rank })
+        assertNotNull(t1.pastOppAvg)
+    }
 }
