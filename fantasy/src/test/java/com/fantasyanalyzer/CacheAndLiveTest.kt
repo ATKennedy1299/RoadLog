@@ -3,6 +3,7 @@ package com.fantasyanalyzer
 import com.fantasyanalyzer.data.EspnClient
 import com.fantasyanalyzer.data.EspnException
 import com.fantasyanalyzer.data.EspnParser
+import com.fantasyanalyzer.data.FieldStatus
 import com.fantasyanalyzer.data.FileJsonCache
 import com.fantasyanalyzer.data.JsonCache
 import com.fantasyanalyzer.data.NflGame
@@ -159,5 +160,32 @@ class CacheAndLiveTest {
         ))
         assertEquals("https://example.com/a.png", lg.teams.getValue(1).logo)
         assertNull(lg.teams.getValue(2).logo)
+    }
+
+    @Test
+    fun possessionAndRedZoneMarkWhoIsOnTheField() {
+        val raw = JSONObject(
+            """
+            {"events": [{"competitions": [{
+              "status": {"period": 2, "displayClock": "3:00", "type": {"state": "in", "shortDetail": "Q2 3:00"}},
+              "situation": {"possession": "26", "isRedZone": true},
+              "competitors": [
+                {"homeAway": "home", "score": "7", "team": {"id": "7", "abbreviation": "DEN"}},
+                {"homeAway": "away", "score": "3", "team": {"id": "26", "abbreviation": "SEA"}}]}]}]}
+            """
+        )
+        val game = EspnParser.parseScoreboard(raw).getValue("SEA")
+        assertEquals("SEA", game.possession)
+        assertTrue(game.redZone)
+        fun player(pos: String, team: String) =
+            Player(1, "X", pos, team, emptyList(), "ACTIVE", 10.0, emptyList(), false, game = game)
+        assertEquals(FieldStatus.RED_ZONE, player("WR", "SEA").fieldStatus)
+        assertNull(player("WR", "DEN").fieldStatus)            // their offense is on the sideline
+        assertEquals(FieldStatus.RED_ZONE, player("D/ST", "DEN").fieldStatus) // defending
+        assertNull(player("D/ST", "SEA").fieldStatus)
+        val midfield = game.copy(redZone = false)
+        assertEquals(FieldStatus.ON_FIELD, player("RB", "SEA").copy(game = midfield).fieldStatus)
+        val done = game.copy(state = NflGame.POST)
+        assertNull(player("WR", "SEA").copy(game = done).fieldStatus)
     }
 }

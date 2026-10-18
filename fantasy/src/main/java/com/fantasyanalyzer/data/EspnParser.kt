@@ -288,6 +288,15 @@ object EspnParser {
             }
             val ha = home.optJSONObject("team")?.optString("abbreviation").orEmpty().uppercase()
             val aa = away.optJSONObject("team")?.optString("abbreviation").orEmpty().uppercase()
+            // Live situation: the possession team comes as ESPN's site team id.
+            val situation = comp.optJSONObject("situation")
+            val possessionId = situation?.optString("possession")?.takeIf { it.isNotBlank() && it != "null" }
+            val possession = when (possessionId) {
+                null -> null
+                home.optJSONObject("team")?.optString("id"), home.optString("id") -> ha
+                away.optJSONObject("team")?.optString("id"), away.optString("id") -> aa
+                else -> null
+            }
             val game = NflGame(
                 state = state,
                 detail = type.optString("shortDetail").ifBlank { type.optString("detail") },
@@ -296,6 +305,8 @@ object EspnParser {
                 homeScore = home.optString("score").toIntOrNull() ?: 0,
                 awayScore = away.optString("score").toIntOrNull() ?: 0,
                 remainingShare = remaining,
+                possession = possession.takeIf { state == NflGame.IN },
+                redZone = state == NflGame.IN && situation?.optBoolean("isRedZone", false) == true,
             )
             if (ha.isNotBlank()) out[ha] = game
             if (aa.isNotBlank()) out[aa] = game

@@ -148,6 +148,23 @@ data class Player(
         return (1.0 - (now - start).toDouble() / GAME_LENGTH_MS).coerceIn(0.0, 1.0)
     }
 
+    /**
+     * Whether they're on the field right now, ESPN style: offensive players when
+     * their team has the ball, a D/ST when the other team does. Null when not.
+     */
+    val fieldStatus: FieldStatus?
+        get() {
+            val g = game ?: return null
+            val ball = g.possession ?: return null
+            if (g.state != NflGame.IN) return null
+            val onOffense = ball == proTeam
+            return when {
+                position == "D/ST" -> if (!onOffense) (if (g.redZone) FieldStatus.RED_ZONE else FieldStatus.ON_FIELD) else null
+                onOffense -> if (g.redZone) FieldStatus.RED_ZONE else FieldStatus.ON_FIELD
+                else -> null
+            }
+        }
+
     /** Points expected by the end of their game: scored so far plus the projection for what's left. */
     fun expectedFinal(now: Long): Double {
         if (!gameStarted(now)) return expected
@@ -161,6 +178,8 @@ data class Player(
         const val GAME_LENGTH_MS = 3L * 60 * 60 * 1000 + 15 * 60 * 1000
     }
 }
+
+enum class FieldStatus { ON_FIELD, RED_ZONE }
 
 /** [locked] is ESPN's own lineup-lock flag, when it sends one. */
 data class RosterSpot(val player: Player, val slotId: Int, val locked: Boolean = false) {
@@ -183,6 +202,10 @@ data class NflGame(
     val awayScore: Int,
     /** Share of regulation still to play, from the period and clock. */
     val remainingShare: Double,
+    /** Abbreviation of the team with the ball, while the game is on. */
+    val possession: String? = null,
+    /** The team with the ball is inside the opponent's 20. */
+    val redZone: Boolean = false,
 ) {
     /** "14-17" from [team]'s side. */
     fun scoreFor(team: String): String =

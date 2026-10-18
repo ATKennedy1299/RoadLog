@@ -3,6 +3,8 @@
 package com.fantasyanalyzer.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -246,6 +248,7 @@ internal fun MyTeamScreen(
     val edit = { s: RosterSpot -> picking = roster.first { it.player.id == s.player.id } }
 
     SectionHeader("STARTERS", "SCORE")
+    if (d.gamesInProgress) FieldLegend(Modifier.padding(top = 6.dp))
     starters.forEach { RosterLine(it, original.getValue(it.player.id), locked = !isCurrentWeek || it.isLocked(now), now, edit) }
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Text("Total", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
@@ -358,7 +361,13 @@ private fun RosterLine(spot: RosterSpot, originalSlot: Int, locked: Boolean, now
             }
         }
         Row(Modifier.weight(1f).clickable { open(p) }, verticalAlignment = Alignment.CenterVertically) {
-            PlayerPhoto(p, 44.dp, Modifier.padding(horizontal = 10.dp))
+            // ESPN's live ring: red in the red zone, orange on the field.
+            val ring = fieldColor(p.fieldStatus)
+            PlayerPhoto(
+                p, 44.dp,
+                Modifier.padding(horizontal = 10.dp)
+                    .then(if (ring != null) Modifier.border(2.dp, ring, CircleShape) else Modifier),
+            )
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(shortName(p.name), style = MaterialTheme.typography.bodyMedium,

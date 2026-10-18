@@ -281,3 +281,24 @@ private fun upcoming(d: Dashboard, p: Player): List<Triple<Int, String, Int?>> {
         }
     }
 }
+
+val RedZoneColor = Color(0xFFF25C5C)
+val OnFieldColor = Color(0xFFFFB648)
+
+/** ESPN's outline colors: red in the red zone, orange on the field. */
+fun fieldColor(status: com.fantasyanalyzer.data.FieldStatus?): Color? = when (status) {
+    com.fantasyanalyzer.data.FieldStatus.RED_ZONE -> RedZoneColor
+    com.fantasyanalyzer.data.FieldStatus.ON_FIELD -> OnFieldColor
+    null -> null
+}
+
+/** "■ In Red Zone  ■ On Field", shown while games are on. */
+@Composable
+fun FieldLegend(modifier: Modifier = Modifier) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        listOf("In Red Zone" to RedZoneColor, "On Field" to OnFieldColor).forEach { (label, color) ->
+            Box(Modifier.padding(start = 10.dp, end = 4.dp).size(10.dp).background(color, RoundedCornerShape(2.dp)))
+            Text(label, style = MaterialTheme.typography.labelSmall, color = color)
+        }
+    }
+}

@@ -173,9 +173,12 @@ internal fun MatchupTab(
             v.starters.all { it.home == null && it.away == null } -> Text("No lineups set for this matchup yet.",
                 Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             else -> {
-                Text("STARTERS", Modifier.padding(start = 4.dp, top = 12.dp, bottom = 6.dp),
-                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 12.dp, bottom = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("STARTERS", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (d.gamesInProgress) FieldLegend()
+                }
                 LineupPanel(v.starters, now)
                 // The bench follows straight on; the gap and BE in the middle mark where it starts.
                 if (v.bench.isNotEmpty()) {
@@ -441,8 +444,13 @@ private fun PlayerCell(spot: RosterSpot?, now: Long, mirrored: Boolean, ahead: B
             Text(p.projected?.let { fmt1(it) } ?: "–", style = MaterialTheme.typography.labelSmall, color = muted)
         }
     }
+    // ESPN's live outline: red in the red zone, orange on the field.
+    val outline = fieldColor(p.fieldStatus)
     Row(
-        modifier.clickable { open(p) }.padding(horizontal = 8.dp, vertical = 8.dp),
+        modifier.padding(2.dp)
+            .then(if (outline != null) Modifier.border(2.dp, outline, RoundedCornerShape(10.dp)) else Modifier)
+            .clip(RoundedCornerShape(10.dp))
+            .clickable { open(p) }.padding(horizontal = 6.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (mirrored) {
