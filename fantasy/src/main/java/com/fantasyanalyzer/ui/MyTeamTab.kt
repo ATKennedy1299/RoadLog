@@ -82,6 +82,8 @@ internal fun MyTeamScreen(
     val startWeek = league.currentWeek.coerceIn(weeks.first(), weeks.last())
     var week by rememberSaveable(league.id, league.year) { mutableIntStateOf(startWeek) }
     LaunchedEffect(week, d) { onRequestWeek(week) }
+    // A save's success or error belongs to the team and week it was for.
+    LaunchedEffect(myTeam, week) { lineup.onDismiss() }
 
     // The current week comes straight from the dashboard so live refreshes show up here.
     val outlook = d.data.outlook
@@ -174,7 +176,10 @@ internal fun MyTeamScreen(
     }
     // ESPN only takes lineup changes for the current week; past weeks are over, future ones not open yet.
     val isCurrentWeek = week == league.currentWeek
-    val editable = isCurrentWeek && roster.any { !it.isLocked(now) }
+    // Only the signed-in account's own team can be changed (ESPN answers 401 otherwise).
+    // If we couldn't tell which team that is, let ESPN decide.
+    val ownTeam = d.signedInTeamId == null || d.signedInTeamId == myTeam
+    val editable = isCurrentWeek && ownTeam && roster.any { !it.isLocked(now) }
 
     Row(Modifier.padding(top = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(
@@ -189,6 +194,11 @@ internal fun MyTeamScreen(
         ) { Text("Reset") }
     }
     when {
+        !ownTeam -> Text(
+            "You can only change lineups for your own team.",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
         !isCurrentWeek -> Text(
             if (week < league.currentWeek) "Week $week is over." else "ESPN only takes lineup changes for the current week (week ${league.currentWeek}).",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -249,7 +259,7 @@ internal fun MyTeamScreen(
 
     SectionHeader("STARTERS", "SCORE")
     if (d.gamesInProgress) FieldLegend(Modifier.padding(top = 6.dp))
-    starters.forEach { RosterLine(it, original.getValue(it.player.id), locked = !isCurrentWeek || it.isLocked(now), now, edit) }
+    starters.forEach { RosterLine(it, original.getValue(it.player.id), locked = !editable || it.isLocked(now), now, edit) }
     Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         Text("Total", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
         Column(horizontalAlignment = Alignment.End) {
@@ -259,7 +269,7 @@ internal fun MyTeamScreen(
         }
     }
     SectionHeader("BENCH", "")
-    bench.forEach { RosterLine(it, original.getValue(it.player.id), locked = !isCurrentWeek || it.isLocked(now), now, edit) }
+    bench.forEach { RosterLine(it, original.getValue(it.player.id), locked = !editable || it.isLocked(now), now, edit) }
 
     picking?.let { spot ->
         val here = target[spot.player.id] ?: spot.slotId
