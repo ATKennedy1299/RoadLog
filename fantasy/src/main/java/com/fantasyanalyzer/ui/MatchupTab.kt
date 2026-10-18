@@ -365,6 +365,7 @@ private fun leftToPlay(roster: List<RosterSpot>?, now: Long): String {
 private fun LineupPanel(rows: List<SlotRow>, now: Long, modifier: Modifier = Modifier) {
     Column(
         modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
             .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
     ) {
         rows.forEachIndexed { i, row ->
@@ -385,7 +386,7 @@ private fun SlotLine(row: SlotRow, now: Long) {
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
         PlayerCell(row.home, now, mirrored = false, ahead = homeAhead, modifier = Modifier.weight(1f))
         Box(
-            Modifier.width(44.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceVariant),
+            Modifier.width(38.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainerLow),
             contentAlignment = Alignment.Center,
         ) {
             Text(row.slot.replace("/", "/\n"), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
@@ -407,29 +408,32 @@ private fun PlayerCell(spot: RosterSpot?, now: Long, mirrored: Boolean, ahead: B
     }
     val p = spot.player
     val open = LocalOpenPlayer.current
+    // Short lines stacked, so names get the full width: name / team + opponent / game / stats.
+    val align = if (mirrored) TextAlign.End else TextAlign.Start
     val info: @Composable (Modifier) -> Unit = { m ->
         Column(m, horizontalAlignment = if (mirrored) Alignment.End else Alignment.Start) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (mirrored) Text("${p.proTeam} ", style = MaterialTheme.typography.labelSmall, color = muted)
                 Text(shortName(p.name), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 StatusChip(p)
-                if (!mirrored) Text(" ${p.proTeam}", style = MaterialTheme.typography.labelSmall, color = muted)
             }
-            Text(gameLine(p, now, muted), style = MaterialTheme.typography.labelSmall, maxLines = 1,
-                overflow = TextOverflow.Ellipsis, textAlign = if (mirrored) TextAlign.End else TextAlign.Start,
-                color = if (p.game?.state == NflGame.IN) Good else muted)
-            p.statLine?.let {
+            Text(matchupLine(p, muted), style = MaterialTheme.typography.labelSmall, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, textAlign = align)
+            gameStateText(p, now)?.let {
                 Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    color = MaterialTheme.colorScheme.onSurface)
+                    textAlign = align, color = if (p.game?.state == NflGame.IN) Good else muted)
+            }
+            p.statLine?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    textAlign = align, color = MaterialTheme.colorScheme.onSurface)
             }
         }
     }
     val chip: @Composable () -> Unit = {
         Column(
-            Modifier.widthIn(min = 46.dp).clip(RoundedCornerShape(8.dp))
+            Modifier.widthIn(min = 40.dp).clip(RoundedCornerShape(8.dp))
                 .background(if (ahead) Good.copy(alpha = 0.16f) else Color.Transparent)
-                .padding(horizontal = 6.dp, vertical = 3.dp),
+                .padding(horizontal = 4.dp, vertical = 3.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(if (p.gameStarted(now)) fmt1(p.pointsSoFar(now)) else "–", style = MaterialTheme.typography.titleMedium,
@@ -438,14 +442,14 @@ private fun PlayerCell(spot: RosterSpot?, now: Long, mirrored: Boolean, ahead: B
         }
     }
     Row(
-        modifier.clickable { open(p) }.padding(horizontal = 10.dp, vertical = 9.dp),
+        modifier.clickable { open(p) }.padding(horizontal = 8.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (mirrored) {
             chip()
-            info(Modifier.weight(1f).padding(start = 6.dp))
+            info(Modifier.weight(1f).padding(start = 4.dp))
         } else {
-            info(Modifier.weight(1f).padding(end = 6.dp))
+            info(Modifier.weight(1f).padding(end = 4.dp))
             chip()
         }
     }

@@ -55,14 +55,37 @@ import com.fantasyanalyzer.analysis.Matrix
 val Good = Color(0xFF2E7D32)
 val Bad = Color(0xFFC62828)
 
+/** Charcoal greys and ESPN-style blue: background darkest, rows a step lighter, cards lighter still. */
+private val EspnDark = darkColorScheme(
+    primary = Color(0xFF6EA8FE),
+    onPrimary = Color(0xFF0B1E3A),
+    primaryContainer = Color(0xFF24476F),
+    onPrimaryContainer = Color(0xFFD6E4FF),
+    secondary = Color(0xFFFFB648),
+    onSecondary = Color(0xFF2B1D00),
+    background = Color(0xFF1E2023),
+    onBackground = Color(0xFFF1F3F5),
+    surface = Color(0xFF1E2023),
+    onSurface = Color(0xFFF1F3F5),
+    surfaceVariant = Color(0xFF26292D),
+    onSurfaceVariant = Color(0xFFA3A9B0),
+    surfaceContainerLowest = Color(0xFF191B1E),
+    surfaceContainerLow = Color(0xFF222428),
+    surfaceContainer = Color(0xFF2A2D31),
+    surfaceContainerHigh = Color(0xFF2F3237),
+    surfaceContainerHighest = Color(0xFF34383D),
+    outline = Color(0xFF6B727B),
+    outlineVariant = Color(0xFF3A3E44),
+)
+
 @Composable
 fun FantasyTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()
     val context = LocalContext.current
     val scheme = when {
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (dark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        dark -> darkColorScheme(primary = Color(0xFF81C784), secondary = Color(0xFFFFB74D))
+        // Dark: a fixed charcoal palette like ESPN's app rather than the system's near-black.
+        dark -> EspnDark
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> dynamicLightColorScheme(context)
         else -> lightColorScheme(primary = Color(0xFF2E7D32), secondary = Color(0xFFEF6C00))
     }
     MaterialTheme(colorScheme = scheme, content = content)

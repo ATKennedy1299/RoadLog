@@ -91,7 +91,7 @@ fun gameLine(p: Player, now: Long, muted: Color): AnnotatedString = buildAnnotat
     val g = p.game
     when {
         g != null && g.state != NflGame.PRE -> append("${g.scoreFor(p.proTeam)} ${g.detail} ")
-        g != null -> append("${g.detail} ")
+        g != null -> append(preGameText(p, g) + " ")
         p.gameStart != null && !p.gameStarted(now) -> append(kickoffText(p.gameStart) + " ")
         p.gameStart != null -> append(if (p.remainingShare(now) > 0) "Live " else "Final ")
     }
@@ -100,6 +100,38 @@ fun gameLine(p: Player, now: Long, muted: Color): AnnotatedString = buildAnnotat
     withStyle(SpanStyle(color = color)) {
         append(opp)
         p.opponentRank?.let { append(" (${ordinal(it)})") }
+    }
+}
+
+/** Before kickoff: "Sun 1:00 PM" from the schedule, else ESPN's text without the date clutter and time zone. */
+private fun preGameText(p: Player, g: NflGame): String =
+    p.gameStart?.let { kickoffText(it) } ?: g.detail.replace(Regex("""\s+[A-Z]{2,4}$"""), "")
+
+/** Team and opponent with the opponent's rank against the position: "JAX @DEN (4th)". */
+fun matchupLine(p: Player, muted: Color): AnnotatedString = buildAnnotatedString {
+    withStyle(SpanStyle(color = muted)) { append(p.proTeam) }
+    if (p.onBye) {
+        withStyle(SpanStyle(color = muted)) { append(" · BYE") }
+        return@buildAnnotatedString
+    }
+    val opp = p.opponent ?: return@buildAnnotatedString
+    withStyle(SpanStyle(color = rankColor(p.opponentRank) ?: muted)) {
+        append(" $opp")
+        p.opponentRank?.let { append(" (${ordinal(it)})") }
+    }
+}
+
+/** Where their game is: "Sun 1:00 PM", "14-17 Q3 4:12", "14-17 Final/OT"; null on a bye or with no schedule. */
+fun gameStateText(p: Player, now: Long): String? {
+    if (p.onBye) return null
+    val g = p.game
+    return when {
+        g != null && g.state != NflGame.PRE -> "${g.scoreFor(p.proTeam)} ${g.detail}"
+        g != null -> preGameText(p, g)
+        p.gameStart == null -> null
+        !p.gameStarted(now) -> kickoffText(p.gameStart)
+        p.remainingShare(now) > 0 -> "Live"
+        else -> "Final"
     }
 }
 
