@@ -89,6 +89,7 @@ fun DashboardScreen(
     onLiveTick: () -> Unit,
     playerWeeks: Map<Long, Map<Int, com.fantasyanalyzer.data.WeekLine>>,
     onRequestPlayer: (Long) -> Unit,
+    waiverActions: WaiverActions,
 ) {
     val dashboard = (state as? UiState.Loaded)?.dashboard
 
@@ -178,7 +179,7 @@ fun DashboardScreen(
                         Centered { Text("No completed games yet this season.") }
                     } else {
                         Tabs(state.dashboard, state.dashboard.myTeamId(settings), onSetMyTeam, weekLineups, onRequestWeek, lineupActions,
-                            playerWeeks, onRequestPlayer)
+                            playerWeeks, onRequestPlayer, waiverActions)
                     }
                 }
             }
@@ -205,6 +206,7 @@ private fun Tabs(
     lineupActions: LineupActions,
     playerWeeks: Map<Long, Map<Int, com.fantasyanalyzer.data.WeekLine>>,
     onRequestPlayer: (Long) -> Unit,
+    waiverActions: WaiverActions,
 ) {
     // Opens on Matchup (tab order unchanged).
     var tab by rememberSaveable { mutableIntStateOf(TABS.indexOf("Matchup")) }
@@ -225,7 +227,7 @@ private fun Tabs(
                     0 -> standingsTab(d)
                     1 -> item(key = "matchup") { MatchupTab(d, myTeam, weekLineups, onRequestWeek) }
                     2 -> item(key = "myteam") { MyTeamScreen(d, myTeam, onSetMyTeam, lineupActions, weekLineups, onRequestWeek) }
-                    3 -> waiversTab(d, myTeam, onSetMyTeam)
+                    3 -> item(key = "waivers") { WaiversScreen(d, myTeam, onSetMyTeam, waiverActions) }
                     4 -> playoffsTab(d, myTeam)
                     5 -> powerTab(d)
                     6 -> luckTab(d)

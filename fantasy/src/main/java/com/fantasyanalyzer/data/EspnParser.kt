@@ -19,7 +19,8 @@ object EspnParser {
                 }
             } ?: ""
             val logo = t.optString("logo").takeIf { it.startsWith("http") }
-            id to Team(id, teamName(t), t.optString("abbrev"), owner, ownerIds, t.optInt("divisionId", 0), logo)
+            val faabSpent = t.optJSONObject("transactionCounter")?.optInt("acquisitionBudgetSpent", 0) ?: 0
+            id to Team(id, teamName(t), t.optString("abbrev"), owner, ownerIds, t.optInt("divisionId", 0), logo, faabSpent)
         }
 
         val sched = settings.optJSONObject("scheduleSettings") ?: JSONObject()
@@ -77,6 +78,9 @@ object EspnParser {
             currentScoringPeriod = scoringPeriod,
             finalScoringPeriod = finalPeriod,
             playoffTeamCount = sched.optInt("playoffTeamCount", 4).coerceIn(1, teams.size.coerceAtLeast(1)),
+            faabBudget = settings.optJSONObject("acquisitionSettings")?.let { a ->
+                if (a.optBoolean("isUsingAcquisitionBudget", false)) a.optInt("acquisitionBudget", 100) else null
+            },
         )
     }
 
@@ -270,6 +274,27 @@ object EspnParser {
                 statLine = actual?.optJSONObject("stats")?.let { statLine(it, position) },
             )
         }
+    }
+
+    /**
+     * Pending waiver claims for [teamId] from an `mPendingTransactions` response.
+     * Best effort: ESPN's shape for these isn't documented.
+     */
+    fun parsePendingClaims(raw: JSONObject, teamId: Int): List<PendingClaim> {
+        val txs = (raw.optJSONArray("pendingTransactions").objects() + raw.optJSONArray("transactions").objects())
+            .filter { it.optInt("teamId", -1) == teamId && it.optString("status").equals("PENDING", ignoreCase = true) }
+        return txs.mapNotNull { t ->
+            val items = t.optJSONArray("items").objects()
+            val add = items.firstOrNull { it.optString("type") == "ADD" }?.optLong("playerId", 0) ?: return@mapNotNull null
+            val drop = items.firstOrNull { it.optString("type") == "DROP" }?.optLong("playerId", 0)
+            PendingClaim(
+                id = t.optString("id"),
+                addPlayerId = add,
+                dropPlayerId = drop?.takeIf { it != 0L },
+                bid = t.optInt("bidAmount", 0).takeIf { it > 0 },
+                processDate = t.optLong("processDate", 0).takeIf { it > 0 },
+            )
+        }.distinctBy { it.id }
     }
 
     /** `mPositionalRatings`: position id -> opponent pro team id -> rank vs that position. */

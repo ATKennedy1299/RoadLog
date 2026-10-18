@@ -25,6 +25,8 @@ data class Team(
     val divisionId: Int = 0,
     /** Team logo image URL the manager set on ESPN, if any. */
     val logo: String? = null,
+    /** Waiver budget (FAAB) spent so far this season. */
+    val faabSpent: Int = 0,
 )
 
 data class Matchup(
@@ -75,7 +77,12 @@ data class League(
     /** Last NFL week of the fantasy season; past this there's nothing left to set. */
     val finalScoringPeriod: Int = 17,
     val playoffTeamCount: Int = 4,
+    /** The waiver budget (FAAB) each team starts with; null when the league doesn't bid. */
+    val faabBudget: Int? = null,
 ) {
+    /** Most players a team can carry outside IR. */
+    val rosterLimit: Int get() = lineupSlotCounts.filterKeys { it != IR }.values.sum()
+
     fun teamName(id: Int): String = teams[id]?.name ?: "Team $id"
 
     /** The team managed by any of these ESPN account ids (SWIDs), if one is. */

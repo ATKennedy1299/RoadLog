@@ -35,6 +35,8 @@ private fun App(vm: LeagueViewModel = viewModel()) {
     val saveState by vm.saveState.collectAsStateWithLifecycle()
     val liveMode by vm.liveMode.collectAsStateWithLifecycle()
     val playerWeeks by vm.playerWeeks.collectAsStateWithLifecycle()
+    val txState by vm.txState.collectAsStateWithLifecycle()
+    val pending by vm.pending.collectAsStateWithLifecycle()
     var screen by rememberSaveable { mutableStateOf(Screen.Dashboard) }
     // Edits on the setup screen, kept while the user detours through the ESPN sign-in.
     var draft by remember(settings) { mutableStateOf(settings) }
@@ -55,6 +57,13 @@ private fun App(vm: LeagueViewModel = viewModel()) {
             onLiveTick = { vm.refreshLive() },
             playerWeeks = playerWeeks,
             onRequestPlayer = vm::requestPlayer,
+            waiverActions = WaiverActions(
+                txState = txState,
+                pending = pending,
+                onSubmit = vm::submitAddDrop,
+                onDismiss = vm::clearTxState,
+                onRequestPending = { vm.requestPending(it) },
+            ),
         )
         Screen.Settings -> SettingsScreen(
             draft = draft,

@@ -115,29 +115,47 @@ class EspnClient(
      */
     fun submitLineup(teamId: Int, scoringPeriod: Int, moves: List<LineupMove>): String {
         require(moves.isNotEmpty())
+        return submitTransaction("lineup", "Lineup saved on ESPN.") { swid ->
+            LineupEditor.transaction(teamId, swid, scoringPeriod, moves)
+        }
+    }
+
+    /** Adds a free agent or claims a waiver player, optionally dropping someone. */
+    fun submitAddDrop(teamId: Int, scoringPeriod: Int, move: AddDrop): String =
+        submitTransaction(if (move.claim) "claim" else "move", if (move.claim) "Waiver claim placed." else "Done on ESPN.") { swid ->
+            RosterMoves.transaction(teamId, swid, scoringPeriod, move)
+        }
+
+    /**
+     * Posts one transaction to the league's write API, as ESPN's site does.
+     * [body] gets the member id (SWID) matching the cookies being tried.
+     */
+    private fun submitTransaction(what: String, success: String, body: (String) -> JSONObject): String {
         val url = "$writeUrl/seasons/$year/segments/0/leagues/$leagueId/transactions/"
         var last: Response? = null
         for (cookie in listOfNotNull(working) + candidates.filterNotNull()) {
             val swid = EspnLogin.cookieValues(listOf(cookie), "SWID").firstOrNull() ?: continue
-            val body = LineupEditor.transaction(teamId, swid, scoringPeriod, moves).toString()
-            val resp = request(url, cookie, emptyMap(), userAgent, postJson = body)
+            val resp = request(url, cookie, emptyMap(), userAgent, postJson = body(swid).toString())
             last = resp
             if (resp.code == 401 || resp.code == 403) continue
             if (resp.code !in 200..299) break
             val result = parseObject(resp.body)
             val status = result?.optString("status").orEmpty()
             if (status.contains("FAIL", ignoreCase = true) || status.contains("REJECT", ignoreCase = true)) {
-                throw EspnException("ESPN didn't accept the lineup: ${espnMessage(resp.body) ?: status}")
+                throw EspnException("ESPN didn't accept the $what: ${espnMessage(resp.body) ?: status}")
             }
             working = cookie
-            return if (status.isNotBlank() && status != "null") "ESPN: ${status.lowercase()}" else "Lineup saved on ESPN."
+            return if (status.isNotBlank() && status != "null") "ESPN: ${status.lowercase()}" else success
         }
-        val r = last ?: throw EspnException("Sign in to ESPN to change your lineup.", authProblem = true)
+        val r = last ?: throw EspnException("Sign in to ESPN to make changes.", authProblem = true)
         throw EspnException(
-            "ESPN didn't accept the lineup (HTTP ${r.code})" + (espnMessage(r.body)?.let { ": $it" } ?: "."),
+            "ESPN didn't accept the $what (HTTP ${r.code})" + (espnMessage(r.body)?.let { ": $it" } ?: "."),
             authProblem = r.code == 401 || r.code == 403,
         )
     }
+
+    /** The league's pending transactions (waiver claims waiting to process). Not cached. */
+    fun pendingTransactions(): JSONObject = get(listOf("view" to "mPendingTransactions"))
 
     /** NFL teams with their bye weeks and kickoffs. Public; refreshed daily (games get flexed). */
     fun proTeams(): JSONObject = cached("pro", reuseFor = ONE_DAY) {

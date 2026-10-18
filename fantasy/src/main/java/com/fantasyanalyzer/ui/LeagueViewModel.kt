@@ -30,6 +30,8 @@ import com.fantasyanalyzer.data.SampleData
 import com.fantasyanalyzer.data.Settings
 import com.fantasyanalyzer.data.SettingsStore
 import com.fantasyanalyzer.data.WeekLine
+import com.fantasyanalyzer.data.AddDrop
+import com.fantasyanalyzer.data.PendingClaim
 import com.fantasyanalyzer.data.EspnParser
 import com.fantasyanalyzer.data.withGames
 import kotlinx.coroutines.Dispatchers
@@ -168,6 +170,64 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _saveState = MutableStateFlow<SaveState>(SaveState.Idle)
     val saveState: StateFlow<SaveState> = _saveState.asStateFlow()
+
+    private val _txState = MutableStateFlow<SaveState>(SaveState.Idle)
+    /** The last add, drop or waiver claim sent to ESPN. */
+    val txState: StateFlow<SaveState> = _txState.asStateFlow()
+
+    private val _pending = MutableStateFlow<List<PendingClaim>?>(null)
+    /** The user's waiver claims waiting to process; null until loaded. */
+    val pending: StateFlow<List<PendingClaim>?> = _pending.asStateFlow()
+
+    /** Sends an add/drop or waiver claim to ESPN, then reloads (roster and free agents both change). */
+    fun submitAddDrop(teamId: Int, move: AddDrop) {
+        val s = _settings.value
+        val d = loaded ?: return
+        if (s.useDemo) {
+            _txState.value = SaveState.Failed("This is the demo league, so there's no ESPN team to change.")
+            return
+        }
+        if (_txState.value == SaveState.Saving) return
+        _txState.value = SaveState.Saving
+        val net = client(s)
+        val period = d.league.currentScoringPeriod
+        viewModelScope.launch {
+            _txState.value = try {
+                SaveState.Saved(withContext(Dispatchers.IO) { net.submitAddDrop(teamId, period, move) })
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                SaveState.Failed(e.message ?: "Couldn't make that move.")
+            }
+            if (_txState.value is SaveState.Saved) {
+                if (move.claim) requestPending(teamId, force = true) else load()
+            }
+        }
+    }
+
+    fun clearTxState() {
+        if (_txState.value != SaveState.Saving) _txState.value = SaveState.Idle
+    }
+
+    /** Loads the user's pending waiver claims (best effort: an empty list if ESPN won't say). */
+    fun requestPending(teamId: Int, force: Boolean = false) {
+        val s = _settings.value
+        if (s.useDemo) {
+            _pending.value = emptyList()
+            return
+        }
+        if (!force && _pending.value != null) return
+        val net = client(s)
+        viewModelScope.launch {
+            _pending.value = try {
+                withContext(Dispatchers.IO) { EspnParser.parsePendingClaims(net.pendingTransactions(), teamId) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                emptyList()
+            }
+        }
+    }
 
     private val _playerWeeks = MutableStateFlow<Map<Long, Map<Int, WeekLine>>>(emptyMap())
     /** Player id -> their whole season, loaded when their sheet is opened. */
