@@ -399,7 +399,7 @@ private fun RosterLine(spot: RosterSpot, originalSlot: Int, locked: Boolean, now
             Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 8.dp)) {
                 Text(if (p.gameStarted(now)) fmt1(p.pointsSoFar(now)) else "–", style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold)
-                Text(p.projected?.let { fmt1(it) } ?: "–", style = MaterialTheme.typography.bodySmall, color = muted)
+                Text(p.liveProjection(now)?.let { fmt1(it) } ?: "–", style = MaterialTheme.typography.bodySmall, color = muted)
             }
         }
     }

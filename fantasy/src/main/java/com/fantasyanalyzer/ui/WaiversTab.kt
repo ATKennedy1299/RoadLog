@@ -391,7 +391,7 @@ private fun AvailableRow(p: Player, now: Long, enabled: Boolean, onOpen: () -> U
         }
         Box(Modifier.width(56.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainerHigh),
             contentAlignment = Alignment.Center) {
-            Text(p.projected?.let { fmt1(it) } ?: "–", style = MaterialTheme.typography.bodyMedium)
+            Text(p.liveProjection(now)?.let { fmt1(it) } ?: "–", style = MaterialTheme.typography.bodyMedium)
         }
         Box(Modifier.width(56.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
             Text(if (p.gameStarted(now)) fmt1(p.pointsSoFar(now)) else "–", style = MaterialTheme.typography.bodyMedium,

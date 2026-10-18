@@ -215,7 +215,7 @@ fun PlayerSheet(p: Player, d: Dashboard, weeks: Map<Int, com.fantasyanalyzer.dat
                 }
                 Column(Modifier.weight(1f)) {
                     Text("Projected", style = MaterialTheme.typography.labelMedium, color = muted)
-                    Text(p.projected?.let { fmt1(it) } ?: "–", style = MaterialTheme.typography.headlineSmall)
+                    Text(p.liveProjection(now)?.let { fmt1(it) } ?: "–", style = MaterialTheme.typography.headlineSmall)
                 }
             }
             p.statLine?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }

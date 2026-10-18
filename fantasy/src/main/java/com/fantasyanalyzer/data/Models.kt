@@ -178,6 +178,18 @@ data class Player(
         return (actual ?: 0.0) + (projected ?: 0.0) * remainingShare(now)
     }
 
+    /**
+     * The projection to show, ESPN style: while their game is on it's points so
+     * far plus the projection for the time left, so it moves with every score.
+     * Before kickoff and once the game is over it's ESPN's original projection.
+     */
+    fun liveProjection(now: Long): Double? {
+        val p = projected ?: return null
+        if (!gameStarted(now)) return p
+        val left = remainingShare(now)
+        return if (left > 0.0) (actual ?: 0.0) + p * left else p
+    }
+
     companion object {
         val OUT_STATUSES = setOf("OUT", "INJURY_RESERVE", "SUSPENSION")
 

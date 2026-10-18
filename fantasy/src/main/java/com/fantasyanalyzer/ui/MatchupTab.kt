@@ -481,7 +481,7 @@ private fun PlayerCell(spot: RosterSpot?, now: Long, mirrored: Boolean, ahead: B
         ) {
             Text(if (p.gameStarted(now)) fmt1(p.pointsSoFar(now)) else "–", style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold)
-            Text(p.projected?.let { fmt1(it) } ?: "–", style = MaterialTheme.typography.labelSmall, color = muted)
+            Text(p.liveProjection(now)?.let { fmt1(it) } ?: "–", style = MaterialTheme.typography.labelSmall, color = muted)
         }
     }
     // ESPN's live outline: red in the red zone, orange on the field.

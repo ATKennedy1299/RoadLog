@@ -190,6 +190,17 @@ class CacheAndLiveTest {
     }
 
     @Test
+    fun projectionMovesWithLiveScoring() {
+        val base = Player(1, "A B", "WR", "SEA", listOf(4), "ACTIVE", 17.0, emptyList(), false, gameStart = 0)
+        val live = base.copy(actual = 19.0, game = NflGame(NflGame.IN, "Q3", "SEA", "DEN", 21, 10, 0.4))
+        assertEquals(19.0 + 17.0 * 0.4, live.liveProjection(1)!!, 1e-9)
+        val before = base.copy(gameStart = 100, game = NflGame(NflGame.PRE, "", "SEA", "DEN", 0, 0, 1.0))
+        assertEquals(17.0, before.liveProjection(1)!!, 1e-9)
+        val over = live.copy(game = live.game!!.copy(state = NflGame.POST, remainingShare = 0.0))
+        assertEquals(17.0, over.liveProjection(1)!!, 1e-9) // final: ESPN's original projection again
+    }
+
+    @Test
     fun ignoresOtherSeasonsStats() {
         // ESPN sends last season's week 6 alongside this season's; only 2026 counts.
         val pool = JSONObject(
