@@ -6,6 +6,12 @@ project and CI.
 
 ## Features
 
+- **Matchup**: ESPN-style matchup page for any week (arrows to go back and
+  forward): every game that week in a scoreboard strip, both teams' points
+  with projections and win chances, and lineups side by side by position
+  with each player's NFL game, kickoff or Live/Final, points and
+  projection. Bench on demand. Weeks other than the current one load from
+  ESPN the first time you open them.
 - **My Team**: this week's matchup with your win chances, start/sit advice
   from ESPN's projections (best lineup, what to swap, how many points it's
   worth), and warnings for starters who are on bye, out, doubtful or

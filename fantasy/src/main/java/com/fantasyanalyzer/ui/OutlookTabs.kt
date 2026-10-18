@@ -35,7 +35,7 @@ import java.util.Locale
 private val Warn = Color(0xFFEF6C00)
 
 /** Percent for odds: never claims 100% or 0% unless every simulation agreed. */
-private fun pct(p: Double): String = when {
+internal fun pct(p: Double): String = when {
     p >= 1.0 -> "100%"
     p <= 0.0 -> "0%"
     p > 0.999 -> ">99.9%"
@@ -57,7 +57,7 @@ private fun Player.statusText(): String? = when {
 }
 
 @Composable
-private fun StatusChip(p: Player) {
+internal fun StatusChip(p: Player) {
     val text = p.statusText() ?: return
     Text(
         " $text",

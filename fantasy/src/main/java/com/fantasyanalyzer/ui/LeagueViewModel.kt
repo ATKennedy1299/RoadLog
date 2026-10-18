@@ -20,6 +20,7 @@ import com.fantasyanalyzer.data.EspnClient
 import com.fantasyanalyzer.data.EspnException
 import com.fantasyanalyzer.data.EspnLogin
 import com.fantasyanalyzer.data.LeagueRef
+import com.fantasyanalyzer.data.RosterSpot
 import com.fantasyanalyzer.data.LeagueData
 import com.fantasyanalyzer.data.SampleData
 import com.fantasyanalyzer.data.Settings
@@ -84,6 +85,13 @@ object BrowserSession {
     }
 }
 
+/** A week's lineups for the Matchup tab. */
+sealed interface WeekLineups {
+    data object Loading : WeekLineups
+    data class Loaded(val rosters: Map<Int, List<RosterSpot>>) : WeekLineups
+    data class Unavailable(val message: String) : WeekLineups
+}
+
 sealed interface UiState {
     data object NeedsSetup : UiState
     data class Loading(val message: String) : UiState
@@ -104,6 +112,58 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
     val leagueSearch: StateFlow<LeagueSearch> = _leagueSearch.asStateFlow()
 
     private var loadJob: Job? = null
+
+    private val _weekLineups = MutableStateFlow<Map<Int, WeekLineups>>(emptyMap())
+    val weekLineups: StateFlow<Map<Int, WeekLineups>> = _weekLineups.asStateFlow()
+
+    /** Bumped on every load, so a week fetched for an older load is thrown away. */
+    private var generation = 0
+
+    /** Lineups loaded for a week, for whichever league is on screen. */
+    private fun putWeek(week: Int, value: WeekLineups, gen: Int = generation) {
+        if (gen == generation) _weekLineups.value = _weekLineups.value + (week to value)
+    }
+
+    /**
+     * Makes sure [week]'s lineups are loaded (or loading). The current week comes
+     * from what's already loaded; other weeks are fetched once and cached.
+     */
+    fun requestWeek(week: Int) {
+        val loaded = (_state.value as? UiState.Loaded)?.dashboard ?: return
+        val existing = _weekLineups.value[week]
+        if (existing is WeekLineups.Loaded || existing is WeekLineups.Loading) return
+        val data = loaded.data
+        val league = data.league
+        val fromBox = data.boxScores[week]?.mapValues { (_, r) -> r.map { it.toSpot() } }
+        val outlook = data.outlook
+        if (outlook != null && week == league.currentWeek) {
+            putWeek(week, WeekLineups.Loaded(outlook.rosters))
+            return
+        }
+        val s = _settings.value
+        if (s.useDemo) {
+            putWeek(week, fromBox?.let { WeekLineups.Loaded(it) } ?: WeekLineups.Unavailable("The demo doesn't have lineups for this week."))
+            return
+        }
+        putWeek(week, WeekLineups.Loading)
+        val cookies = cookieCandidates(s)
+        val gen = generation
+        viewModelScope.launch {
+            val result = try {
+                val rosters = withContext(Dispatchers.IO) {
+                    EspnClient(s.leagueId.toLong(), s.year, cookies, userAgent).weekRosters(league, week, data.proTeams)
+                }
+                if (rosters.isNotEmpty()) WeekLineups.Loaded(rosters) else null
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            putWeek(week, result
+                ?: fromBox?.let { WeekLineups.Loaded(it) }
+                ?: WeekLineups.Unavailable("ESPN didn't return lineups for week $week."), gen)
+        }
+    }
 
     // ESPN's edge sometimes turns away requests that don't look like a browser.
     private val userAgent: String? = try {
@@ -184,6 +244,8 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         loadJob?.cancel()
+        generation++
+        _weekLineups.value = emptyMap()
         val cookies = if (s.useDemo) emptyList() else cookieCandidates(s)
         val accounts = accountIds(s)
         loadJob = viewModelScope.launch {

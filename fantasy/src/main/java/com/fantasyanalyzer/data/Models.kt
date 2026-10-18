@@ -44,8 +44,17 @@ data class RosterEntry(
     val points: Double,
     val eligibleSlots: List<Int>,
     val playerId: Long = 0,
+    val proTeam: String = "",
+    /** ESPN's projection for that week, when it sent one. */
+    val projected: Double? = null,
 ) {
     val started: Boolean get() = slotId !in INACTIVE_SLOTS
+
+    /** As a roster spot, for screens built on those; the points are final. */
+    fun toSpot(): RosterSpot = RosterSpot(
+        Player(playerId, name, position, proTeam, eligibleSlots, "ACTIVE", projected, emptyList(), false, actual = points),
+        slotId,
+    )
 }
 
 data class League(
@@ -105,6 +114,8 @@ data class Player(
     val actual: Double? = null,
     /** Kickoff of their NFL game this week (epoch ms), when the pro schedule is known. */
     val gameStart: Long? = null,
+    /** This week's NFL opponent, "@DEN" away or "DEN" at home, when known. */
+    val opponent: String? = null,
 ) {
     val isOut: Boolean get() = onBye || injuryStatus in OUT_STATUSES
 
@@ -148,8 +159,13 @@ data class RosterSpot(val player: Player, val slotId: Int, val locked: Boolean =
     fun isLocked(now: Long): Boolean = locked || player.gameStarted(now)
 }
 
-/** An NFL team: abbreviation, bye week, and kickoff time (epoch ms) of its game in each NFL week. */
-data class ProTeam(val abbrev: String, val byeWeek: Int, val kickoffs: Map<Int, Long> = emptyMap())
+/** One NFL game from a team's side: kickoff (epoch ms), opponent's pro team id, and whether it's at home. */
+data class ProGame(val kickoff: Long, val opponentId: Int, val home: Boolean)
+
+/** An NFL team: abbreviation, bye week, and its game in each NFL week. */
+data class ProTeam(val abbrev: String, val byeWeek: Int, val games: Map<Int, ProGame> = emptyMap()) {
+    val kickoffs: Map<Int, Long> get() = games.mapValues { it.value.kickoff }
+}
 
 /** The week ahead: every team's current roster with projections, plus the free agent pool. */
 data class WeekOutlook(
@@ -163,4 +179,6 @@ data class LeagueData(
     val boxScores: BoxScores,
     /** Null when the season is over or ESPN didn't return it. */
     val outlook: WeekOutlook? = null,
+    /** NFL teams by ESPN pro team id; empty if the pro schedule couldn't be loaded. */
+    val proTeams: Map<Int, ProTeam> = emptyMap(),
 )

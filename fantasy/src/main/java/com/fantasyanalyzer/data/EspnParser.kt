@@ -99,6 +99,10 @@ object EspnParser {
                         points = playerPoints(pool, scoringPeriod),
                         eligibleSlots = elig?.let { a -> (0 until a.length()).map { a.getInt(it) } } ?: emptyList(),
                         playerId = player.optLong("id", e.optLong("playerId", 0)),
+                        proTeam = PRO_TEAMS[player.optInt("proTeamId", 0)] ?: "",
+                        projected = player.optJSONArray("stats").objects()
+                            .firstOrNull { it.optInt("scoringPeriodId") == scoringPeriod && it.optInt("statSourceId", -1) == 1 }
+                            ?.optDouble("appliedTotal", 0.0)?.orZero(),
                     )
                 }
                 if (entries.isNotEmpty()) rosters[team.getInt("teamId")] = entries
@@ -110,14 +114,19 @@ object EspnParser {
     /** Pro team id -> abbreviation, bye week and kickoff times, from the season's pro schedule. */
     fun parseProTeams(raw: JSONObject): Map<Int, ProTeam> =
         raw.optJSONObject("settings")?.optJSONArray("proTeams").objects().associate { t ->
-            val kickoffs = mutableMapOf<Int, Long>()
+            val id = t.optInt("id")
+            val games = mutableMapOf<Int, ProGame>()
             t.optJSONObject("proGamesByScoringPeriod")?.let { byWeek ->
                 for (k in byWeek.keys()) {
-                    val date = byWeek.optJSONArray(k).objects().firstOrNull()?.optLong("date", 0L) ?: 0L
-                    if (date > 0) k.toIntOrNull()?.let { kickoffs[it] = date }
+                    val g = byWeek.optJSONArray(k).objects().firstOrNull() ?: continue
+                    val date = g.optLong("date", 0L)
+                    val homeId = g.optInt("homeProTeamId", 0)
+                    val awayId = g.optInt("awayProTeamId", 0)
+                    val home = homeId == id
+                    if (date > 0) k.toIntOrNull()?.let { games[it] = ProGame(date, if (home) awayId else homeId, home) }
                 }
             }
-            t.optInt("id") to ProTeam(t.optString("abbrev").uppercase(), t.optInt("byeWeek", 0), kickoffs)
+            id to ProTeam(t.optString("abbrev").uppercase(), t.optInt("byeWeek", 0), games)
         }
 
     /**
@@ -185,7 +194,11 @@ object EspnParser {
             percentOwned = ownership?.optDouble("percentOwned", 0.0)?.orZero() ?: 0.0,
             percentChange = ownership?.optDouble("percentChange", 0.0)?.orZero() ?: 0.0,
             actual = actual,
-            gameStart = pro.kickoffs[week],
+            gameStart = pro.games[week]?.kickoff,
+            opponent = pro.games[week]?.let { g ->
+                val opp = proTeams[g.opponentId]?.abbrev ?: PRO_TEAMS[g.opponentId] ?: return@let null
+                if (g.home) opp else "@$opp"
+            },
         )
     }
 

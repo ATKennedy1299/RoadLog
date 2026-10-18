@@ -62,12 +62,11 @@ class EspnClient(
      * The coming week: rosters with projections for every team and the free
      * agent pool. Best effort: returns null rather than failing the whole load.
      */
-    fun outlook(league: League, onProgress: (String) -> Unit = {}): WeekOutlook? {
+    fun outlook(league: League, pro: Map<Int, ProTeam>, onProgress: (String) -> Unit = {}): WeekOutlook? {
         if (league.seasonOver) return null
         val week = league.currentScoringPeriod
         return try {
             onProgress("Loading projections for week $week…")
-            val pro = try { EspnParser.parseProTeams(proTeams()) } catch (e: EspnException) { emptyMap() }
             val matchupPeriod = league.matchupPeriods.entries.firstOrNull { week in it.value }?.key ?: league.currentWeek
             val rosters = EspnParser.parseCurrentRosters(boxScores(matchupPeriod, week), week, pro)
             onProgress("Loading free agents…")
@@ -104,7 +103,17 @@ class EspnClient(
             onProgress("Loading lineups: week $week (${i + 1}/${weeks.size})")
             box[week] = EspnParser.parseBoxScores(boxScores(week, periods[0]), periods[0])
         }
-        return LeagueData(league, box, outlook(league, onProgress))
+        val pro = try { EspnParser.parseProTeams(proTeams()) } catch (e: EspnException) { emptyMap() }
+        return LeagueData(league, box, outlook(league, pro, onProgress), pro)
+    }
+
+    /**
+     * Every team's lineup for matchup period [week] with projections and
+     * points, as ESPN shows it on the matchup page (past, current or future).
+     */
+    fun weekRosters(league: League, week: Int, pro: Map<Int, ProTeam>): Map<Int, List<RosterSpot>> {
+        val scoringPeriod = league.matchupPeriods[week]?.firstOrNull() ?: week
+        return EspnParser.parseCurrentRosters(boxScores(week, scoringPeriod), scoringPeriod, pro)
     }
 
     private fun get(params: List<Pair<String, String>>, filter: String? = null): JSONObject {

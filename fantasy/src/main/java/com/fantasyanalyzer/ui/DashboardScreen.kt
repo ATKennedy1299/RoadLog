@@ -60,7 +60,7 @@ import com.fantasyanalyzer.data.slotName
 import java.util.Locale
 
 private val TABS = listOf(
-    "Standings", "My Team", "Waivers", "Playoffs", "Power", "Luck", "Lineups", "Scoring", "Head-to-Head", "Records",
+    "Standings", "Matchup", "My Team", "Waivers", "Playoffs", "Power", "Luck", "Lineups", "Scoring", "Head-to-Head", "Records",
 )
 
 @Composable
@@ -71,6 +71,8 @@ fun DashboardScreen(
     onOpenSettings: () -> Unit,
     onTryDemo: () -> Unit,
     onSetMyTeam: (Int) -> Unit,
+    weekLineups: Map<Int, WeekLineups>,
+    onRequestWeek: (Int) -> Unit,
 ) {
     val dashboard = (state as? UiState.Loaded)?.dashboard
     Scaffold(
@@ -122,7 +124,7 @@ fun DashboardScreen(
                 is UiState.Loaded -> if (state.dashboard.standings.isEmpty()) {
                     Centered { Text("No completed games yet this season.") }
                 } else {
-                    Tabs(state.dashboard, state.dashboard.myTeamId(settings), onSetMyTeam)
+                    Tabs(state.dashboard, state.dashboard.myTeamId(settings), onSetMyTeam, weekLineups, onRequestWeek)
                 }
             }
         }
@@ -139,7 +141,13 @@ private fun Centered(content: @Composable () -> Unit) {
 }
 
 @Composable
-private fun Tabs(d: Dashboard, myTeam: Int?, onSetMyTeam: (Int) -> Unit) {
+private fun Tabs(
+    d: Dashboard,
+    myTeam: Int?,
+    onSetMyTeam: (Int) -> Unit,
+    weekLineups: Map<Int, WeekLineups>,
+    onRequestWeek: (Int) -> Unit,
+) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     Column {
         ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
@@ -150,14 +158,15 @@ private fun Tabs(d: Dashboard, myTeam: Int?, onSetMyTeam: (Int) -> Unit) {
         LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
             when (tab) {
                 0 -> standingsTab(d)
-                1 -> myTeamTab(d, myTeam, onSetMyTeam)
-                2 -> waiversTab(d, myTeam, onSetMyTeam)
-                3 -> playoffsTab(d, myTeam)
-                4 -> powerTab(d)
-                5 -> luckTab(d)
-                6 -> lineupsTab(d)
-                7 -> scoringTab(d)
-                8 -> headToHeadTab(d)
+                1 -> item(key = "matchup") { MatchupTab(d, myTeam, weekLineups, onRequestWeek) }
+                2 -> myTeamTab(d, myTeam, onSetMyTeam)
+                3 -> waiversTab(d, myTeam, onSetMyTeam)
+                4 -> playoffsTab(d, myTeam)
+                5 -> powerTab(d)
+                6 -> luckTab(d)
+                7 -> lineupsTab(d)
+                8 -> scoringTab(d)
+                9 -> headToHeadTab(d)
                 else -> recordsTab(d)
             }
         }
