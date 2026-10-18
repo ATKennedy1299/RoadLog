@@ -138,9 +138,11 @@ class EspnLoginTest {
         val client = EspnClient(1, 2026, listOf("espn_s2=S2; SWID={ANON}", "espn_s2=S2; SWID={ACCOUNT}"), baseUrl = base)
         val data = client.loadAll()
         assertEquals("Real League", data.league.name)
-        // Second request reuses the cookies that worked instead of retrying the bad ones.
-        client.league()
-        assertEquals(listOf("espn_s2=S2; SWID={ANON}", "espn_s2=S2; SWID={ACCOUNT}", "espn_s2=S2; SWID={ACCOUNT}"), hits)
+        assertEquals(listOf("espn_s2=S2; SWID={ANON}", "espn_s2=S2; SWID={ACCOUNT}"), hits.take(2))
+        // Later requests (projections, free agents) reuse the cookies that worked instead of
+        // retrying the bad ones. The pro schedule is public and goes without cookies.
+        assertTrue(hits.size > 2)
+        assertTrue(hits.drop(2).all { it == null || it == "espn_s2=S2; SWID={ACCOUNT}" })
     }
 
     @Test

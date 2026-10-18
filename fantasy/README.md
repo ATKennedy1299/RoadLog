@@ -6,6 +6,18 @@ project and CI.
 
 ## Features
 
+- **My Team**: this week's matchup with your win chances, start/sit advice
+  from ESPN's projections (best lineup, what to swap, how many points it's
+  worth), and warnings for starters who are on bye, out, doubtful or
+  questionable, or empty slots. Players whose games have started are left
+  where they are.
+- **Waivers**: free agents worth more than the weakest player you have at
+  their position (60% ESPN projection, 40% last-3-week average), fill-ins for
+  starters who can't play this week, trending adds, and the best available at
+  each position.
+- **Playoffs**: odds of making the playoffs, getting a bye and winning the
+  title, projected wins, average seed, and what your next game is worth (odds
+  if you win vs. lose), from 10,000 simulations of the rest of the season.
 - **Standings**: record, points for/against, all-play record (your record if
   you'd played every team every week), expected wins, and luck.
 - **Power rankings**: 50% all-play win rate, 30% season scoring average, 20%
@@ -62,5 +74,8 @@ tools (Application/Storage → Cookies → fantasy.espn.com).
 
 `data/` (minus `SettingsStore`) and `analysis/` are plain Kotlin with no Android
 dependencies; `src/test` covers them (`./gradlew :fantasy:testDebugUnitTest`).
+
+Your team is picked automatically from the ESPN account you signed in with;
+change it with the picker on the My Team tab.
 
 Seasons from 2018 on are supported.

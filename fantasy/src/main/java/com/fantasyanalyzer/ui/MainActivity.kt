@@ -37,9 +37,11 @@ private fun App(vm: LeagueViewModel = viewModel()) {
     when (screen) {
         Screen.Dashboard -> DashboardScreen(
             state = state,
+            settings = settings,
             onRefresh = vm::load,
             onOpenSettings = { screen = Screen.Settings },
             onTryDemo = { vm.updateSettings(settings.copy(useDemo = true)) },
+            onSetMyTeam = vm::setMyTeam,
         )
         Screen.Settings -> SettingsScreen(
             draft = draft,

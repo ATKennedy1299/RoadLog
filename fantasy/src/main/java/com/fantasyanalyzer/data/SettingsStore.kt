@@ -15,6 +15,7 @@ class SettingsStore(context: Context) {
         year = prefs.getInt(KEY_YEAR, defaultSeason()),
         espnS2 = prefs.getString(KEY_S2, "") ?: "",
         swid = prefs.getString(KEY_SWID, "") ?: "",
+        myTeamId = prefs.getInt(KEY_MY_TEAM, 0),
     )
 
     fun save(s: Settings) {
@@ -24,6 +25,7 @@ class SettingsStore(context: Context) {
             .putInt(KEY_YEAR, s.year)
             .putString(KEY_S2, s.espnS2)
             .putString(KEY_SWID, s.swid)
+            .putInt(KEY_MY_TEAM, s.myTeamId)
             .apply()
     }
 
@@ -34,6 +36,7 @@ class SettingsStore(context: Context) {
         const val KEY_YEAR = "year"
         const val KEY_S2 = "espn_s2"
         const val KEY_SWID = "swid"
+        const val KEY_MY_TEAM = "my_team"
 
         fun open(context: Context): SharedPreferences {
             fun create() = EncryptedSharedPreferences.create(

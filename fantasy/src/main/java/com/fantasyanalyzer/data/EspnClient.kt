@@ -42,6 +42,56 @@ class EspnClient(
         filter = """{"schedule":{"filterMatchupPeriodIds":{"value":[$matchupPeriod]}}}""",
     )
 
+    /** Free agents and waiver players who can fill [slotId], most-owned first. */
+    fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = get(
+        listOf("view" to "kona_player_info", "scoringPeriodId" to week.toString()),
+        filter = """{"players":{"filterStatus":{"value":["FREEAGENT","WAIVERS"]},""" +
+            """"filterSlotIds":{"value":[$slotId]},"limit":$limit,"offset":0,""" +
+            """"sortPercOwned":{"sortPriority":1,"sortAsc":false},""" +
+            """"sortDraftRanks":{"sortPriority":100,"sortAsc":true,"value":"STANDARD"},""" +
+            """"filterStatsForTopScoringPeriodIds":{"value":3,"additionalValue":["00$year","10$year","11$year$week"]}}}""",
+    )
+
+    /** NFL teams with their bye weeks. Public; no cookies needed. */
+    fun proTeams(): JSONObject {
+        val resp = request("$baseUrl/seasons/$year?view=proTeamSchedules_wl", null, emptyMap(), userAgent)
+        return if (resp.code in 200..299) parseObject(resp.body) ?: JSONObject() else JSONObject()
+    }
+
+    /**
+     * The coming week: rosters with projections for every team and the free
+     * agent pool. Best effort: returns null rather than failing the whole load.
+     */
+    fun outlook(league: League, onProgress: (String) -> Unit = {}): WeekOutlook? {
+        if (league.seasonOver) return null
+        val week = league.currentScoringPeriod
+        return try {
+            onProgress("Loading projections for week $week…")
+            val pro = try { EspnParser.parseProTeams(proTeams()) } catch (e: EspnException) { emptyMap() }
+            val matchupPeriod = league.matchupPeriods.entries.firstOrNull { week in it.value }?.key ?: league.currentWeek
+            val rosters = EspnParser.parseCurrentRosters(boxScores(matchupPeriod, week), week, pro)
+            onProgress("Loading free agents…")
+            val positionSlots = listOf(0, 2, 4, 6, 16, 17) // QB, RB, WR, TE, D/ST, K
+                .filter { slot -> league.lineupSlotCounts.isEmpty() || positionNeeded(slot, league.lineupSlotCounts) }
+            val freeAgents = positionSlots.flatMap { slot ->
+                try {
+                    EspnParser.parseFreeAgents(freeAgents(week, slot), week, pro)
+                } catch (e: EspnException) {
+                    emptyList()
+                }
+            }.distinctBy { it.id }
+            WeekOutlook(week, rosters, freeAgents)
+        } catch (e: EspnException) {
+            null
+        }
+    }
+
+    /** Whether any starting slot in the league can use the position that [slot] holds. */
+    private fun positionNeeded(slot: Int, counts: Map<Int, Int>): Boolean {
+        val flexFor = mapOf(0 to setOf(7), 2 to setOf(3, 23, 7), 4 to setOf(3, 5, 23, 7), 6 to setOf(5, 23, 7))
+        return (counts[slot] ?: 0) > 0 || flexFor[slot].orEmpty().any { (counts[it] ?: 0) > 0 }
+    }
+
     /** Downloads the league plus box scores for every completed single-week matchup period. */
     fun loadAll(onProgress: (String) -> Unit = {}): LeagueData {
         onProgress("Loading league…")
@@ -54,7 +104,7 @@ class EspnClient(
             onProgress("Loading lineups: week $week (${i + 1}/${weeks.size})")
             box[week] = EspnParser.parseBoxScores(boxScores(week, periods[0]), periods[0])
         }
-        return LeagueData(league, box)
+        return LeagueData(league, box, outlook(league, onProgress))
     }
 
     private fun get(params: List<Pair<String, String>>, filter: String? = null): JSONObject {

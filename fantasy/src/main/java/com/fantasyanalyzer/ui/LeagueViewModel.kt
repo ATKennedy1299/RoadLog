@@ -9,7 +9,9 @@ import com.fantasyanalyzer.analysis.Analysis
 import com.fantasyanalyzer.analysis.EfficiencyRow
 import com.fantasyanalyzer.analysis.EfficiencySummary
 import com.fantasyanalyzer.analysis.Matrix
+import com.fantasyanalyzer.analysis.Odds
 import com.fantasyanalyzer.analysis.OptimalRecordRow
+import com.fantasyanalyzer.analysis.PlayoffOdds
 import com.fantasyanalyzer.analysis.Record
 import com.fantasyanalyzer.analysis.StandingRow
 import com.fantasyanalyzer.analysis.TeamGame
@@ -29,8 +31,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** Everything the dashboard shows, computed once per load. */
-class Dashboard(val data: LeagueData) {
+/**
+ * Everything the dashboard shows, computed once per load. [signedInTeamId] is
+ * the team the signed-in ESPN account manages, if any.
+ */
+class Dashboard(val data: LeagueData, val signedInTeamId: Int? = null) {
     val league = data.league
     val standings: List<StandingRow> = Analysis.standings(league)
     val games: List<TeamGame> = Analysis.teamWeeks(league)
@@ -40,6 +45,11 @@ class Dashboard(val data: LeagueData) {
     val efficiency: List<EfficiencyRow> = Analysis.lineupEfficiency(league, data.boxScores)
     val efficiencySummary: List<EfficiencySummary> = Analysis.efficiencySummary(efficiency)
     val optimalRecord: List<OptimalRecordRow> = Analysis.optimalRecord(league, efficiency)
+    val playoffOdds: PlayoffOdds = Odds.playoffOdds(league)
+
+    /** The user's team: their own pick if it's in this league, else the one their account manages. */
+    fun myTeamId(settings: Settings): Int? =
+        settings.myTeamId.takeIf { it in league.teams } ?: signedInTeamId
 }
 
 sealed interface LeagueSearch {
@@ -141,10 +151,29 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun updateSettings(s: Settings) {
-        store.save(s)
-        _settings.value = s
+        val prev = _settings.value
+        // A team picked in one league means nothing in another.
+        val next = if (s.leagueId != prev.leagueId || s.useDemo != prev.useDemo) s.copy(myTeamId = 0) else s
+        store.save(next)
+        _settings.value = next
         load()
     }
+
+    /** Remembers which team is the user's; no reload needed. */
+    fun setMyTeam(teamId: Int) {
+        val s = _settings.value.copy(myTeamId = teamId)
+        store.save(s)
+        _settings.value = s
+    }
+
+    /** ESPN account ids the user is signed in as, for spotting their team. */
+    private fun accountIds(s: Settings): List<String> =
+        if (s.useDemo) {
+            listOf(SampleData.DEMO_SWID)
+        } else {
+            EspnLogin.cookieValues(listOf(BrowserSession.apiCookieHeader()) + BrowserSession.otherCookieHeaders(), "SWID") +
+                listOfNotNull(s.swid.ifBlank { null })
+        }
 
     fun load() {
         val s = _settings.value
@@ -154,6 +183,7 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
         }
         loadJob?.cancel()
         val cookies = if (s.useDemo) emptyList() else cookieCandidates(s)
+        val accounts = accountIds(s)
         loadJob = viewModelScope.launch {
             _state.value = UiState.Loading(if (s.useDemo) "Building demo league…" else "Connecting to ESPN…")
             _state.value = try {
@@ -165,7 +195,8 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
                             _state.value = UiState.Loading(msg)
                         }
                     }
-                    Dashboard(data)
+                    _state.value = UiState.Loading("Simulating the rest of the season…")
+                    Dashboard(data, data.league.teamOwnedBy(accounts))
                 }
                 UiState.Loaded(dashboard)
             } catch (e: EspnException) {

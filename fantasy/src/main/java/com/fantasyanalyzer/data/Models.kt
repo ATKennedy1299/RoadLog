@@ -15,7 +15,15 @@ val INACTIVE_SLOTS = setOf(BENCH, IR)
 
 fun slotName(id: Int): String = SLOTS[id] ?: id.toString()
 
-data class Team(val id: Int, val name: String, val abbrev: String, val owner: String)
+data class Team(
+    val id: Int,
+    val name: String,
+    val abbrev: String,
+    val owner: String,
+    /** ESPN account ids (SWIDs) of the team's managers. */
+    val ownerIds: List<String> = emptyList(),
+    val divisionId: Int = 0,
+)
 
 data class Matchup(
     val week: Int,
@@ -35,6 +43,7 @@ data class RosterEntry(
     val slotId: Int,
     val points: Double,
     val eligibleSlots: List<Int>,
+    val playerId: Long = 0,
 ) {
     val started: Boolean get() = slotId !in INACTIVE_SLOTS
 }
@@ -50,8 +59,21 @@ data class League(
     val lineupSlotCounts: Map<Int, Int>,
     /** matchup period -> scoring periods (usually one NFL week each) */
     val matchupPeriods: Map<Int, List<Int>> = emptyMap(),
+    /** The current NFL week (ESPN's scoring period). */
+    val currentScoringPeriod: Int = currentWeek,
+    /** Last NFL week of the fantasy season; past this there's nothing left to set. */
+    val finalScoringPeriod: Int = 17,
+    val playoffTeamCount: Int = 4,
 ) {
     fun teamName(id: Int): String = teams[id]?.name ?: "Team $id"
+
+    /** The team managed by any of these ESPN account ids (SWIDs), if one is. */
+    fun teamOwnedBy(swids: Collection<String>): Int? {
+        val wanted = swids.map { it.trim().trim('{', '}').lowercase() }.toSet()
+        return teams.values.firstOrNull { t -> t.ownerIds.any { it.trim('{', '}').lowercase() in wanted } }?.id
+    }
+
+    val seasonOver: Boolean get() = currentScoringPeriod > finalScoringPeriod
 
     fun completedWeeks(includePlayoffs: Boolean = false): List<Int> =
         matchups.filter { it.complete && it.awayId != null && (includePlayoffs || !it.isPlayoff) }
@@ -61,4 +83,51 @@ data class League(
 /** Week -> team id -> that team's roster with points for the week. */
 typealias BoxScores = Map<Int, Map<Int, List<RosterEntry>>>
 
-data class LeagueData(val league: League, val boxScores: BoxScores)
+/** One NFL player with what's known about them for the coming week. */
+data class Player(
+    val id: Long,
+    val name: String,
+    val position: String,
+    val proTeam: String,
+    val eligibleSlots: List<Int>,
+    /** ESPN's status: ACTIVE, QUESTIONABLE, DOUBTFUL, OUT, INJURY_RESERVE, SUSPENSION, ... */
+    val injuryStatus: String,
+    /** ESPN's projection for the week; null when ESPN has none (usually a bye). */
+    val projected: Double?,
+    /** Actual points in recent weeks, oldest first. */
+    val recentPoints: List<Double>,
+    val onBye: Boolean,
+    val percentOwned: Double = 0.0,
+    val percentChange: Double = 0.0,
+    /** Free agent list only: on waivers (needs a claim) rather than free to add. */
+    val onWaivers: Boolean = false,
+) {
+    val isOut: Boolean get() = onBye || injuryStatus in OUT_STATUSES
+
+    /** What we expect from them this week: nothing if they won't play. */
+    val expected: Double get() = if (isOut) 0.0 else projected ?: 0.0
+
+    val recentAvg: Double? get() = recentPoints.takeIf { it.isNotEmpty() }?.average()
+
+    companion object {
+        val OUT_STATUSES = setOf("OUT", "INJURY_RESERVE", "SUSPENSION")
+    }
+}
+
+data class RosterSpot(val player: Player, val slotId: Int, val locked: Boolean = false) {
+    val started: Boolean get() = slotId !in INACTIVE_SLOTS
+}
+
+/** The week ahead: every team's current roster with projections, plus the free agent pool. */
+data class WeekOutlook(
+    val week: Int,
+    val rosters: Map<Int, List<RosterSpot>>,
+    val freeAgents: List<Player>,
+)
+
+data class LeagueData(
+    val league: League,
+    val boxScores: BoxScores,
+    /** Null when the season is over or ESPN didn't return it. */
+    val outlook: WeekOutlook? = null,
+)

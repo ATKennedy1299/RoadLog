@@ -8,6 +8,8 @@ data class Settings(
     val year: Int = defaultSeason(),
     val espnS2: String = "",
     val swid: String = "",
+    /** The user's team in this league; 0 = work it out from their ESPN sign-in. */
+    val myTeamId: Int = 0,
 ) {
     val hasLeague: Boolean get() = leagueId.toLongOrNull() != null
     val hasCookies: Boolean get() = espnS2.isNotBlank() && swid.isNotBlank()

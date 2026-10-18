@@ -24,7 +24,16 @@ object SampleData {
         Pos(5, listOf(17, 20, 21), 8.0, 4.0, 1, listOf(17)),
     )
 
-    private class Player(val name: String, val pos: Pos, val mean: Double)
+    /** A generated NFL player. (Not [com.fantasyanalyzer.data.Player], which is what ESPN data parses into.) */
+    private class Gen(val id: Long, val name: String, val pos: Pos, val mean: Double, val proTeam: Int)
+
+    /** The demo account's ESPN id; it manages team 1. */
+    const val DEMO_SWID = "{DEMO-1}"
+
+    private val PRO_TEAMS = listOf(
+        "ATL", "BUF", "CHI", "CIN", "CLE", "DAL", "DEN", "DET", "GB", "TEN", "IND", "KC", "LV", "LAR", "MIA", "MIN",
+        "NE", "NO", "NYG", "NYJ", "PHI", "ARI", "PIT", "LAC", "SF", "SEA", "TB", "WSH", "CAR", "JAX", "BAL", "HOU",
+    )
 
     private fun Random.gauss(mean: Double, sd: Double): Double {
         // Box-Muller
@@ -45,24 +54,33 @@ object SampleData {
             POS.flatMap { p ->
                 (0 until p.count).map { n ->
                     pid++
-                    Player("Player $pid", p, p.mean * skill * rng.nextDouble(0.6, 1.3) * (if (n < 2) 1.0 else 0.8))
+                    Gen(pid.toLong(), "Player $pid", p, p.mean * skill * rng.nextDouble(0.6, 1.3) * (if (n < 2) 1.0 else 0.8),
+                        rng.nextInt(PRO_TEAMS.size))
                 }
             }
         }
         val managerSkill = ids.associateWith { rng.nextDouble(0.6, 1.4) }
+        val byeWeek = PRO_TEAMS.indices.associateWith { 5 + it % 10 }
+        val history = mutableMapOf<Gen, MutableList<Double>>()
 
-        fun weekRoster(players: List<Player>, skill: Double): List<RosterEntry> {
-            val pts = players.associateWith { max(0.0, round1(rng.gauss(it.mean, it.pos.sd))) }
-            // Managers start by expectation plus noise; better managers have less noise.
+        // Managers start by expectation plus noise; better managers have less noise.
+        fun assignLineup(players: List<Gen>, skill: Double): Map<Gen, Int> {
             val guess = players.associateWith { it.mean + rng.gauss(0.0, 4 * (1.5 - skill)) }
             val ranked = players.sortedByDescending { guess.getValue(it) }
-            val assigned = mutableMapOf<Player, Int>()
+            val assigned = mutableMapOf<Gen, Int>()
             for (p in POS) for (slot in p.starters) {
                 assigned[ranked.first { it.pos === p && it !in assigned }] = slot
             }
             assigned[ranked.first { it.pos.id in setOf(2, 3, 4) && it !in assigned }] = 23
+            return assigned
+        }
+
+        fun weekRoster(players: List<Gen>, skill: Double): List<RosterEntry> {
+            val pts = players.associateWith { max(0.0, round1(rng.gauss(it.mean, it.pos.sd))) }
+            pts.forEach { (p, v) -> history.getOrPut(p) { mutableListOf() } += v }
+            val assigned = assignLineup(players, skill)
             return players.map {
-                RosterEntry(it.name, POSITIONS.getValue(it.pos.id), assigned[it] ?: BENCH, pts.getValue(it), it.pos.slots)
+                RosterEntry(it.name, POSITIONS.getValue(it.pos.id), assigned[it] ?: BENCH, pts.getValue(it), it.pos.slots, it.id)
             }
         }
 
@@ -88,11 +106,49 @@ object SampleData {
 
         val league = League(
             id = 123456, year = 2026, name = "Demo League (sample data)",
-            teams = ids.associateWith { Team(it, TEAM_NAMES[it - 1], TEAM_NAMES[it - 1].take(4).uppercase(), "owner$it") },
+            teams = ids.associateWith {
+                Team(it, TEAM_NAMES[it - 1], TEAM_NAMES[it - 1].take(4).uppercase(), "owner$it", listOf("{DEMO-$it}"))
+            },
             matchups = matchups, currentWeek = weeksPlayed + 1, regularSeasonWeeks = regWeeks,
             lineupSlotCounts = SLOT_COUNTS, matchupPeriods = (1..regWeeks).associateWith { listOf(it) },
+            currentScoringPeriod = weeksPlayed + 1, finalScoringPeriod = 17, playoffTeamCount = 4,
         )
-        return LeagueData(league, box)
+
+        // The coming week: projections, a few injuries and byes, and a free agent pool.
+        val week = weeksPlayed + 1
+        fun toPlayer(g: Gen): com.fantasyanalyzer.data.Player {
+            val onBye = byeWeek.getValue(g.proTeam) == week
+            val roll = rng.nextDouble()
+            return com.fantasyanalyzer.data.Player(
+                id = g.id, name = g.name, position = POSITIONS.getValue(g.pos.id), proTeam = PRO_TEAMS[g.proTeam],
+                eligibleSlots = g.pos.slots,
+                injuryStatus = when { roll < 0.04 -> "OUT"; roll < 0.10 -> "QUESTIONABLE"; else -> "ACTIVE" },
+                projected = if (onBye) null else round1(g.mean * rng.nextDouble(0.85, 1.15)),
+                recentPoints = history[g].orEmpty().takeLast(3),
+                onBye = onBye,
+                percentOwned = round1(rng.nextDouble(40.0, 100.0)),
+                percentChange = round1(rng.gauss(0.0, 1.5)),
+            )
+        }
+        val current = ids.associateWith { t ->
+            val players = rosters.getValue(t)
+            val assigned = assignLineup(players, managerSkill.getValue(t))
+            players.map { RosterSpot(toPlayer(it), assigned[it] ?: BENCH) }
+        }
+        val freeAgents = POS.flatMap { p ->
+            (0 until 8).map {
+                pid++
+                val g = Gen(pid.toLong(), "Free Agent $pid", p, p.mean * rng.nextDouble(0.35, 0.95), rng.nextInt(PRO_TEAMS.size))
+                // A few weeks of actual production for them too.
+                history[g] = MutableList(3) { max(0.0, round1(rng.gauss(g.mean, p.sd))) }
+                toPlayer(g).copy(
+                    percentOwned = round1(rng.nextDouble(0.5, 35.0)),
+                    percentChange = round1(rng.gauss(1.0, 3.0)),
+                    onWaivers = rng.nextDouble() < 0.2,
+                )
+            }
+        }
+        return LeagueData(league, box, WeekOutlook(week, current, freeAgents))
     }
 
     /** Round-robin circle method. */
