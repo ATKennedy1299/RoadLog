@@ -5,6 +5,7 @@ import android.webkit.CookieManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,12 +21,14 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
@@ -43,14 +46,18 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.fantasyanalyzer.data.EspnClient
 import com.fantasyanalyzer.data.EspnLogin
+import com.fantasyanalyzer.data.LeagueRef
 import com.fantasyanalyzer.data.Settings
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     draft: Settings,
+    leagueSearch: LeagueSearch,
     onChange: (Settings) -> Unit,
+    onFindLeagues: () -> Unit,
     onSignIn: () -> Unit,
     onSignOut: () -> Unit,
     onSave: () -> Unit,
@@ -90,10 +97,13 @@ fun SettingsScreen(
                             Text("  Signed in to ESPN", Modifier.weight(1f))
                             TextButton(onClick = onSignOut) { Text("Sign out") }
                         }
+                        LeaguePicker(draft, leagueSearch, onFindLeagues) { ref ->
+                            onChange(draft.copy(leagueId = ref.leagueId.toString(), year = ref.season, useDemo = false))
+                        }
                     } else {
                         Text(
-                            "Private leagues need you to sign in to ESPN. Sign in, then open your league; " +
-                                "the app picks up your league ID automatically.",
+                            "Private leagues need you to sign in to ESPN. After signing in, the app " +
+                                "finds your leagues for you.",
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Button(onClick = onSignIn, Modifier.fillMaxWidth()) { Text("Sign in with ESPN") }
@@ -157,6 +167,42 @@ fun SettingsScreen(
     }
 }
 
+@Composable
+private fun LeaguePicker(draft: Settings, search: LeagueSearch, onFind: () -> Unit, onPick: (LeagueRef) -> Unit) {
+    when (search) {
+        LeagueSearch.Idle -> OutlinedButton(onClick = onFind, Modifier.fillMaxWidth()) { Text("Find my leagues") }
+        LeagueSearch.Searching -> Row(verticalAlignment = Alignment.CenterVertically) {
+            CircularProgressIndicator(Modifier.padding(end = 12.dp))
+            Text("Looking up your leagues…")
+        }
+        is LeagueSearch.Failed -> Column {
+            Text(search.message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            TextButton(onClick = onFind) { Text("Try again") }
+        }
+        is LeagueSearch.Found -> Column {
+            Text("Pick your league", style = MaterialTheme.typography.labelLarge)
+            search.leagues.forEach { ref ->
+                val selected = draft.leagueId == ref.leagueId.toString() && draft.year == ref.season
+                Row(
+                    Modifier.fillMaxWidth().clickable { onPick(ref) }.padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = selected, onClick = { onPick(ref) })
+                    Column(Modifier.weight(1f)) {
+                        Text(ref.leagueName, style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            listOf(ref.season.takeIf { it > 0 }?.toString(), ref.teamName.ifBlank { null })
+                                .filterNotNull().joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 /**
  * ESPN's own sign-in page in a WebView. Once ESPN sets the espn_s2 cookie we
  * have what the API needs; if the user then opens their league we also get
@@ -189,7 +235,7 @@ fun EspnLoginScreen(onDone: (EspnLogin) -> Unit, onCancel: () -> Unit) {
                         Text(
                             when {
                                 !login.signedIn -> "Log in with your ESPN account"
-                                login.leagueId == null -> "Signed in ✓ Now open your league"
+                                login.leagueId == null -> "Signed in ✓ Tap Done"
                                 else -> "Signed in ✓ League ${login.leagueId} ✓"
                             },
                             style = MaterialTheme.typography.labelMedium,
@@ -204,7 +250,7 @@ fun EspnLoginScreen(onDone: (EspnLogin) -> Unit, onCancel: () -> Unit) {
                         if (login.leagueId != null) {
                             Button(onClick = { onDone(login) }, Modifier.padding(end = 8.dp)) { Text("Use") }
                         } else {
-                            OutlinedButton(onClick = { onDone(login) }, Modifier.padding(end = 8.dp)) { Text("Done") }
+                            Button(onClick = { onDone(login) }, Modifier.padding(end = 8.dp)) { Text("Done") }
                         }
                     }
                 },
@@ -233,11 +279,7 @@ fun EspnLoginScreen(onDone: (EspnLogin) -> Unit, onCancel: () -> Unit) {
     }
 }
 
-/** Forgets ESPN's session in the WebView, so the next sign-in starts fresh. */
-fun clearEspnCookies() {
-    CookieManager.getInstance().removeAllCookies(null)
-    CookieManager.getInstance().flush()
-}
-
-private const val START_URL = "https://fantasy.espn.com/football/"
-private val COOKIE_HOSTS = listOf("https://fantasy.espn.com", "https://www.espn.com", "https://espn.com")
+// ESPN's fantasy football hub; it has the Log In button and links to "My Leagues".
+private const val START_URL = "https://www.espn.com/fantasy/football/"
+// The API host first, so the saved cookies are the ones ESPN's API will see.
+private val COOKIE_HOSTS = listOf(EspnClient.API_ORIGIN, "https://fantasy.espn.com", "https://www.espn.com", "https://espn.com")

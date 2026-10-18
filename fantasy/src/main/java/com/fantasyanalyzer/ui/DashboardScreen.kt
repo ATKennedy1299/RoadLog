@@ -95,7 +95,7 @@ fun DashboardScreen(state: UiState, onRefresh: () -> Unit, onOpenSettings: () ->
                     Text("Couldn't load your league", style = MaterialTheme.typography.titleMedium)
                     Text(state.message, Modifier.padding(16.dp), textAlign = TextAlign.Center)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = onOpenSettings) { Text("League setup") }
+                        OutlinedButton(onClick = onOpenSettings) { Text(if (state.authProblem) "Sign in again" else "League setup") }
                         Button(onClick = onRefresh) { Text("Try again") }
                     }
                 }

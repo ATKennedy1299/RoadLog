@@ -29,6 +29,7 @@ private enum class Screen { Dashboard, Settings, Login }
 private fun App(vm: LeagueViewModel = viewModel()) {
     val settings by vm.settings.collectAsStateWithLifecycle()
     val state by vm.state.collectAsStateWithLifecycle()
+    val leagueSearch by vm.leagueSearch.collectAsStateWithLifecycle()
     var screen by rememberSaveable { mutableStateOf(Screen.Dashboard) }
     // Edits on the setup screen, kept while the user detours through the ESPN sign-in.
     var draft by remember(settings) { mutableStateOf(settings) }
@@ -42,10 +43,13 @@ private fun App(vm: LeagueViewModel = viewModel()) {
         )
         Screen.Settings -> SettingsScreen(
             draft = draft,
+            leagueSearch = leagueSearch,
             onChange = { draft = it },
+            onFindLeagues = { vm.findLeagues(draft) },
             onSignIn = { screen = Screen.Login },
             onSignOut = {
-                clearEspnCookies()
+                BrowserSession.clear()
+                vm.clearLeagueSearch()
                 draft = draft.copy(espnS2 = "", swid = "")
             },
             onSave = {
@@ -66,6 +70,7 @@ private fun App(vm: LeagueViewModel = viewModel()) {
                     leagueId = login.leagueId ?: draft.leagueId,
                     year = login.season ?: draft.year,
                 )
+                if (login.signedIn) vm.findLeagues(draft)
                 screen = Screen.Settings
             },
             onCancel = { screen = Screen.Settings },

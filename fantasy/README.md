@@ -35,12 +35,17 @@ the APK lands in `fantasy/build/outputs/apk/debug/`.
 ## Connecting your private league
 
 1. Open the app → **Connect my league** → **Sign in with ESPN**.
-2. Log in on ESPN's own page, then open your league. The bar at the top
-   confirms once it has your sign-in and league ID; tap **Use**.
-3. Tap **Load my league**.
+2. Tap **Log In** on ESPN's page and sign in. Once the bar at the top says
+   *Signed in*, tap **Done**.
+3. The app lists your football leagues; pick one and tap **Load my league**.
+   (If the list doesn't come up, open your league in the sign-in page so the
+   app can read its ID from the URL, or type the ID in.)
 
-Behind the scenes the app reads the `espn_s2` and `SWID` cookies that ESPN
-sets when you sign in; that's what ESPN's API needs for private leagues.
+Behind the scenes the app uses the cookies ESPN sets when you sign in
+(`espn_s2` and `SWID`); that's what ESPN's API needs for private leagues. It
+sends exactly what the sign-in page would, and if ESPN rejects that it tries
+the other cookie combinations it has seen. When ESPN still says no, the app
+shows ESPN's own reason.
 They're stored encrypted on the phone (Android Keystore) and only sent to
 ESPN. App backups are disabled so they never leave the device. If ESPN logs you
 out, sign in again from League setup.

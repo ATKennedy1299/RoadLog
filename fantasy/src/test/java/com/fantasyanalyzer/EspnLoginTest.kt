@@ -1,12 +1,19 @@
 package com.fantasyanalyzer
 
+import com.fantasyanalyzer.data.EspnClient
+import com.fantasyanalyzer.data.EspnException
 import com.fantasyanalyzer.data.EspnLogin
+import com.sun.net.httpserver.HttpServer
+import org.json.JSONObject
 import com.fantasyanalyzer.data.defaultSeason
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.fail
+import java.net.InetSocketAddress
 import java.time.LocalDate
 
 class EspnLoginTest {
@@ -43,5 +50,91 @@ class EspnLoginTest {
     fun seasonRollsOverInMarch() {
         assertEquals(2025, defaultSeason(LocalDate.of(2026, 1, 20)))
         assertEquals(2026, defaultSeason(LocalDate.of(2026, 10, 18)))
+    }
+
+    @Test
+    fun cookieCandidatesPreferBrowserHeaderAndPairEverySwid() {
+        val api = "SWID={ANON}; espn_s2=S2; country=us"
+        val other = listOf("SWID={ACCOUNT}; espn_s2=S2", null)
+        val c = EspnLogin.cookieCandidates(api, other, "espn_s2=typed; SWID={TYPED}")
+        assertEquals(api, c.first())
+        assertTrue("espn_s2=S2; SWID={ACCOUNT}" in c)
+        assertEquals("espn_s2=typed; SWID={TYPED}", c.last())
+        assertEquals(c, c.distinct())
+    }
+
+    @Test
+    fun cookieCandidatesSkipAnonymousBrowserSession() {
+        // No espn_s2 in the browser yet: only the typed-in cookies are worth trying.
+        val c = EspnLogin.cookieCandidates("SWID={ANON}", listOf(null), "espn_s2=typed; SWID={TYPED}")
+        assertEquals(listOf("espn_s2=typed; SWID={TYPED}"), c)
+    }
+
+    @Test
+    fun parsesLeaguesFromFanProfile() {
+        val raw = JSONObject(
+            """
+            {"preferences": [
+              {"type": {"code": "fantasy"}, "metaData": {"entry": {"abbrev": "FFL", "gameId": 1, "seasonId": 2026,
+                "entryLocation": "Team", "entryNickname": "Taco", "groups": [{"groupId": 4815162, "groupName": "Work League"}]}}},
+              {"type": {"code": "fantasy"}, "metaData": {"entry": {"abbrev": "FBA", "gameId": 3, "seasonId": 2026,
+                "groups": [{"groupId": 999, "groupName": "Hoops"}]}}},
+              {"type": {"code": "team"}, "metaData": {"team": {"id": 1}}}
+            ]}
+            """
+        )
+        val leagues = EspnClient.parseFanLeagues(raw)
+        assertEquals(1, leagues.size)
+        assertEquals(4815162L, leagues[0].leagueId)
+        assertEquals("Work League", leagues[0].leagueName)
+        assertEquals("Team Taco", leagues[0].teamName)
+        assertEquals(2026, leagues[0].season)
+    }
+
+    /** Fake league API that only answers to one cookie, like ESPN for a private league. */
+    private fun withFakeEspn(goodCookie: String, block: (baseUrl: String, hits: MutableList<String?>) -> Unit) {
+        val hits = mutableListOf<String?>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/") { ex ->
+            val cookie = ex.requestHeaders.getFirst("Cookie")
+            hits += cookie
+            val (code, body) = if (cookie == goodCookie) {
+                200 to """{"id": 1, "seasonId": 2026, "settings": {"name": "Real League"}, "teams": [], "schedule": []}"""
+            } else {
+                401 to """{"messages": ["You are not authorized to view this League."], "details": [{"type": "AUTH_LEAGUE_NOT_VISIBLE"}]}"""
+            }
+            val bytes = body.toByteArray()
+            ex.sendResponseHeaders(code, bytes.size.toLong())
+            ex.responseBody.use { it.write(bytes) }
+        }
+        server.start()
+        try {
+            block("http://127.0.0.1:${server.address.port}", hits)
+        } finally {
+            server.stop(0)
+        }
+    }
+
+    @Test
+    fun clientFallsBackToCookiesEspnAccepts() = withFakeEspn("espn_s2=S2; SWID={ACCOUNT}") { base, hits ->
+        val client = EspnClient(1, 2026, listOf("espn_s2=S2; SWID={ANON}", "espn_s2=S2; SWID={ACCOUNT}"), baseUrl = base)
+        val data = client.loadAll()
+        assertEquals("Real League", data.league.name)
+        // Second request reuses the cookies that worked instead of retrying the bad ones.
+        client.league()
+        assertEquals(listOf("espn_s2=S2; SWID={ANON}", "espn_s2=S2; SWID={ACCOUNT}", "espn_s2=S2; SWID={ACCOUNT}"), hits)
+    }
+
+    @Test
+    fun clientReportsEspnsOwnMessage() = withFakeEspn("nope") { base, _ ->
+        try {
+            EspnClient(42, 2026, listOf("espn_s2=S2; SWID={ANON}"), baseUrl = base).league()
+            fail("expected an EspnException")
+        } catch (e: EspnException) {
+            assertTrue(e.authProblem)
+            assertNotNull(e.message)
+            assertTrue(e.message!!, e.message!!.contains("You are not authorized to view this League."))
+            assertTrue(e.message!!.contains("42"))
+        }
     }
 }
