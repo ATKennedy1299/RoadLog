@@ -10,17 +10,27 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
@@ -30,7 +40,6 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
@@ -39,27 +48,31 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.fantasyanalyzer.analysis.MatchupSide
+import com.fantasyanalyzer.analysis.MatchupView
 import com.fantasyanalyzer.analysis.Matchups
 import com.fantasyanalyzer.analysis.SlotRow
 import com.fantasyanalyzer.analysis.fmt1
 import com.fantasyanalyzer.analysis.orientedFor
 import com.fantasyanalyzer.data.Matchup
 import com.fantasyanalyzer.data.NflGame
-import com.fantasyanalyzer.data.Player
 import com.fantasyanalyzer.data.RosterSpot
 
 @Composable
@@ -78,7 +91,6 @@ internal fun MatchupTab(
     val startWeek = league.currentWeek.coerceIn(weeks.first(), weeks.last())
     var week by rememberSaveable(league.id, league.year) { mutableIntStateOf(startWeek) }
     var selected by rememberSaveable(week) { mutableIntStateOf(0) }
-    var showBench by rememberSaveable { mutableStateOf(false) }
     // Keyed on the dashboard too, so a refresh (which clears loaded weeks) asks again.
     LaunchedEffect(week, d) { onRequestWeek(week) }
 
@@ -86,25 +98,11 @@ internal fun MatchupTab(
     val matchups = Matchups.inWeek(league, week, myTeam).map { it.orientedFor(myTeam) }
     val now = remember(d, weekLineups[week]) { System.currentTimeMillis() }
 
-    Column(Modifier.padding(top = 8.dp)) {
-        // Week switcher
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { week = weeks.lastOrNull { it < week } ?: week }, enabled = week > weeks.first()) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous week")
-            }
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Week $week", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                Text(weekLabel(week, league.currentWeek, matchups), style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            IconButton(onClick = { week = weeks.firstOrNull { it > week } ?: week }, enabled = week < weeks.last()) {
-                Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next week")
-            }
-        }
+    Column(Modifier.padding(top = 4.dp)) {
+        WeekBar(week, weeks, weekBadge(week, league.currentWeek, matchups)) { week = it }
         if (week != startWeek) {
             TextButton(onClick = { week = startWeek }, Modifier.align(Alignment.CenterHorizontally)) { Text("Back to this week") }
         }
-
         if (matchups.isEmpty()) {
             Text("No matchups this week.", Modifier.padding(top = 16.dp))
             return@Column
@@ -115,17 +113,14 @@ internal fun MatchupTab(
         val views = matchups.map { Matchups.view(league, it, rosters, now) }
         val idx = selected.coerceIn(0, views.lastIndex)
 
-        // Every matchup that week, like ESPN's scoreboard strip
+        // Every matchup this week; tap one, or swipe the card below.
         Row(
             Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            views.forEachIndexed { i, v ->
-                ScoreChip(d, v.matchup, v.home, v.away, i == idx) { selected = i }
-            }
+            views.forEachIndexed { i, v -> MatchupTile(d, v, i == idx) { selected = i } }
         }
 
-        val v = views[idx]
         // Swipe the score card (just the card) to flip through the week's matchups.
         AnimatedContent(
             targetState = idx,
@@ -152,17 +147,21 @@ internal fun MatchupTab(
                     }
                 },
             ) {
-                MatchupHeader(d, shown.matchup, shown.home, shown.away, shown.homeWinProbability)
+                ScoreCard(d, shown)
             }
         }
-        if (views.size > 1) {
-            Text(
-                "${idx + 1} of ${views.size} · swipe the card for other matchups",
-                Modifier.fillMaxWidth().padding(top = 4.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-            )
+        if (views.size > 1) PageDots(views.size, idx)
+
+        val v = views[idx]
+        val away = v.away
+        if (!v.matchup.complete && rosters != null && away != null) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
+                Text(leftToPlay(rosters[v.home.teamId], now), Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(leftToPlay(rosters[away.teamId], now), Modifier.weight(1f),
+                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.End)
+            }
         }
 
         when {
@@ -174,159 +173,280 @@ internal fun MatchupTab(
             v.starters.all { it.home == null && it.away == null } -> Text("No lineups set for this matchup yet.",
                 Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             else -> {
-                Column(Modifier.padding(top = 12.dp)) {
-                    v.starters.forEach { SlotLine(it, now) }
-                    TextButton(onClick = { showBench = !showBench }, Modifier.align(Alignment.CenterHorizontally)) {
-                        Text(if (showBench) "Hide bench" else "Show bench")
-                    }
-                    if (showBench) v.bench.forEach { SlotLine(it, now) }
+                Text("STARTERS", Modifier.padding(start = 4.dp, top = 12.dp, bottom = 6.dp),
+                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LineupPanel(v.starters, now)
+                // The bench follows straight on; the gap and BE in the middle mark where it starts.
+                if (v.bench.isNotEmpty()) {
+                    LineupPanel(v.bench, now, Modifier.padding(top = 14.dp))
                 }
             }
         }
     }
 }
 
-private fun weekLabel(week: Int, current: Int, matchups: List<Matchup>): String {
-    val playoff = if (matchups.any { it.isPlayoff }) "Playoffs · " else ""
-    val status = when {
-        matchups.isNotEmpty() && matchups.all { it.complete } -> "Final"
-        week == current -> "This week"
-        week > current -> "Upcoming"
-        else -> "In progress"
-    }
-    return playoff + status
+// --- Week bar -------------------------------------------------------------------------------
+
+private enum class WeekBadge(val label: String) { LIVE("LIVE"), FINAL("FINAL"), UPCOMING("UPCOMING"), PAST("") }
+
+private fun weekBadge(week: Int, current: Int, matchups: List<Matchup>): WeekBadge = when {
+    matchups.isNotEmpty() && matchups.all { it.complete } -> WeekBadge.FINAL
+    week == current -> WeekBadge.LIVE
+    week > current -> WeekBadge.UPCOMING
+    else -> WeekBadge.PAST
 }
+
+@Composable
+private fun WeekBar(week: Int, weeks: List<Int>, badge: WeekBadge, onWeek: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = { onWeek(weeks.lastOrNull { it < week } ?: week) }, enabled = week > weeks.first()) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous week", tint = MaterialTheme.colorScheme.primary)
+        }
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+            Text("Week $week", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            if (badge.label.isNotEmpty()) {
+                val live = badge == WeekBadge.LIVE
+                Text(
+                    badge.label,
+                    Modifier.padding(start = 8.dp).clip(RoundedCornerShape(10.dp))
+                        .background(if (live) Good.copy(alpha = 0.16f) else MaterialTheme.colorScheme.surfaceVariant)
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp,
+                    color = if (live) Good else MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        IconButton(onClick = { onWeek(weeks.firstOrNull { it > week } ?: week) }, enabled = week < weeks.last()) {
+            Icon(Icons.AutoMirrored.Filled.KeyboardArrowRight, "Next week", tint = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+// --- Tiles and dots -------------------------------------------------------------------------
 
 private fun abbrev(d: Dashboard, teamId: Int): String =
     d.league.teams[teamId]?.abbrev?.ifBlank { null } ?: d.league.teamName(teamId).take(4)
 
 @Composable
-private fun ScoreChip(d: Dashboard, m: Matchup, home: MatchupSide, away: MatchupSide?, selected: Boolean, onClick: () -> Unit) {
+private fun MatchupTile(d: Dashboard, v: MatchupView, selected: Boolean, onClick: () -> Unit) {
+    val m = v.matchup
+    val away = v.away
     OutlinedCard(
         onClick = onClick,
+        shape = RoundedCornerShape(12.dp),
         border = BorderStroke(if (selected) 2.dp else 1.dp,
             if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant),
     ) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-            ChipLine(abbrev(d, m.homeId), home.actual, m.complete && m.winner == "HOME")
-            if (away != null) ChipLine(abbrev(d, away.teamId), away.actual, m.complete && m.winner == "AWAY")
+        Column(Modifier.width(124.dp).padding(horizontal = 10.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            TileLine(d, v.home.teamId, v.home.actual, m.complete && m.winner == "HOME")
+            if (away != null) TileLine(d, away.teamId, away.actual, m.complete && m.winner == "AWAY")
             else Text("Bye", style = MaterialTheme.typography.labelMedium)
         }
     }
 }
 
 @Composable
-private fun ChipLine(team: String, points: Double, won: Boolean) {
-    Row(Modifier.width(96.dp)) {
-        Text(team, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
-            fontWeight = if (won) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
-        Text(fmt1(points), style = MaterialTheme.typography.labelMedium, fontWeight = if (won) FontWeight.Bold else FontWeight.Normal)
+private fun TileLine(d: Dashboard, teamId: Int, points: Double, won: Boolean) {
+    val team = d.league.teams[teamId]
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        TeamLogo(team?.logo, abbrev(d, teamId), 20.dp, shape = CircleShape)
+        Text(abbrev(d, teamId), Modifier.weight(1f).padding(start = 6.dp), style = MaterialTheme.typography.labelMedium,
+            fontWeight = if (won) FontWeight.Bold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(fmt1(points), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
     }
 }
 
 @Composable
-private fun MatchupHeader(d: Dashboard, m: Matchup, home: MatchupSide, away: MatchupSide?, homeWin: Double?) {
-    val records = d.standings.associate { it.teamId to it.record.toString() }
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp)) {
-            Row {
-                HeaderSide(d, home, records[home.teamId], Alignment.Start, Modifier.weight(1f))
-                if (away != null) HeaderSide(d, away, records[away.teamId], Alignment.End, Modifier.weight(1f))
-                else Text("Bye week", Modifier.weight(1f), textAlign = TextAlign.End)
+private fun PageDots(count: Int, current: Int) {
+    Row(Modifier.fillMaxWidth().padding(top = 10.dp), horizontalArrangement = Arrangement.Center) {
+        repeat(count) { i ->
+            Box(
+                Modifier.padding(horizontal = 3.dp).height(6.dp).width(if (i == current) 18.dp else 6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(
+                        if (i == current) MaterialTheme.colorScheme.onSurface
+                        else MaterialTheme.colorScheme.outlineVariant,
+                    ),
+            )
+        }
+    }
+}
+
+// --- Score card -----------------------------------------------------------------------------
+
+/** "W2" / "L1": the team's current streak of results. */
+private fun streak(d: Dashboard, teamId: Int): String? {
+    val results = d.games.filter { it.teamId == teamId }.sortedBy { it.week }.map { it.result }
+    val last = results.lastOrNull() ?: return null
+    return "$last${results.takeLastWhile { it == last }.size}"
+}
+
+@Composable
+private fun ScoreCard(d: Dashboard, v: MatchupView) {
+    val away = v.away
+    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp)) {
+        Row(Modifier.fillMaxWidth().padding(vertical = 18.dp, horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+            TeamColumn(d, v.home, Modifier.weight(1f))
+            Box(Modifier.width(96.dp), contentAlignment = Alignment.Center) {
+                WinRing(v.homeWinProbability, v.matchup.complete)
             }
-            if (homeWin != null) {
-                Row(Modifier.padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(pct(homeWin), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp))
-                    LinearProgressIndicator(progress = { homeWin.toFloat() }, modifier = Modifier.weight(1f))
-                    Text(if (m.complete) "  Final  " else "  Win %  ", style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    // Away bar fills from the right
-                    LinearProgressIndicator(
-                        progress = { (1 - homeWin).toFloat() },
-                        modifier = Modifier.weight(1f).scale(scaleX = -1f, scaleY = 1f),
-                    )
-                    Text(pct(1 - homeWin), style = MaterialTheme.typography.labelMedium, modifier = Modifier.width(48.dp),
-                        textAlign = TextAlign.End)
+            if (away != null) TeamColumn(d, away, Modifier.weight(1f))
+            else Text("Bye", Modifier.weight(1f), textAlign = TextAlign.Center)
+        }
+    }
+}
+
+@Composable
+private fun TeamColumn(d: Dashboard, side: MatchupSide, modifier: Modifier) {
+    val team = d.league.teams[side.teamId]
+    val record = d.standings.firstOrNull { it.teamId == side.teamId }?.record?.toString()
+    val streak = streak(d, side.teamId)
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        TeamLogo(team?.logo, abbrev(d, side.teamId), 52.dp, shape = CircleShape)
+        Text(d.league.teamName(side.teamId), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
+            textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Row {
+            if (record != null) Text(record, style = MaterialTheme.typography.labelSmall, color = muted)
+            if (streak != null) {
+                Text(" · $streak", style = MaterialTheme.typography.labelSmall,
+                    color = if (streak.startsWith("W")) Good else if (streak.startsWith("L")) Bad else muted)
+            }
+        }
+        Text(fmt1(side.actual), style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold)
+        side.projected?.let { Text("Proj ${fmt1(it)}", style = MaterialTheme.typography.labelMedium, color = muted) }
+    }
+}
+
+/** The left team's chance to win as a ring; the result once the matchup is final. */
+@Composable
+private fun WinRing(homeWin: Double?, complete: Boolean) {
+    val track = MaterialTheme.colorScheme.surfaceVariant
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(Modifier.size(84.dp), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.size(84.dp)) {
+                val stroke = 8.dp.toPx()
+                val inset = stroke / 2
+                val arcSize = Size(size.width - stroke, size.height - stroke)
+                drawArc(track, 0f, 360f, false, Offset(inset, inset), arcSize, style = Stroke(stroke))
+                if (homeWin != null && homeWin > 0) {
+                    drawArc(Good, -90f, (360 * homeWin).toFloat(), false, Offset(inset, inset), arcSize,
+                        style = Stroke(stroke, cap = StrokeCap.Round))
                 }
             }
+            Text(
+                when {
+                    homeWin == null -> "–"
+                    complete -> if (homeWin >= 1.0) "W" else if (homeWin <= 0.0) "L" else "T"
+                    else -> pct(homeWin).replace(".0%", "%")
+                },
+                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+            )
         }
+        Text(if (complete) "FINAL" else "TO WIN", style = MaterialTheme.typography.labelSmall, letterSpacing = 1.sp,
+            color = muted, modifier = Modifier.padding(top = 4.dp))
     }
 }
 
+/** "3 left to play": starters whose game hasn't finished (and who will play). */
+private fun leftToPlay(roster: List<RosterSpot>?, now: Long): String {
+    val n = roster.orEmpty().count { it.started && !it.player.isOut && it.player.remainingShare(now) > 0 }
+    return if (n == 0) "All done" else "$n left to play"
+}
+
+// --- Lineup rows ----------------------------------------------------------------------------
+
+/** A rounded panel of side-by-side rows. */
 @Composable
-private fun HeaderSide(d: Dashboard, side: MatchupSide, record: String?, align: Alignment.Horizontal, modifier: Modifier) {
-    val team = d.league.teams[side.teamId]
-    Column(modifier, horizontalAlignment = align) {
-        TeamLogo(team?.logo, team?.abbrev ?: "", 44.dp, Modifier.padding(bottom = 4.dp))
-        Text(fmt1(side.actual), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
-        side.projected?.let {
-            Text("Proj ${fmt1(it)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun LineupPanel(rows: List<SlotRow>, now: Long, modifier: Modifier = Modifier) {
+    Column(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+    ) {
+        rows.forEachIndexed { i, row ->
+            if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+            SlotLine(row, now)
         }
-        Text(d.league.teamName(side.teamId), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
-            maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = if (align == Alignment.End) TextAlign.End else TextAlign.Start)
-        Text(listOfNotNull(team?.owner?.ifBlank { null }, record).joinToString(" · "),
-            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
 private fun SlotLine(row: SlotRow, now: Long) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        PlayerCell(row.home, now, mirrored = false, Modifier.weight(1f))
-        Text(row.slot, Modifier.width(48.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
-            textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        PlayerCell(row.away, now, mirrored = true, Modifier.weight(1f))
+    // Tint the score of whoever's ahead at this slot, once anyone has played.
+    val hp = row.home?.player?.takeIf { it.gameStarted(now) }?.pointsSoFar(now)
+    val ap = row.away?.player?.takeIf { it.gameStarted(now) }?.pointsSoFar(now)
+    val anyPlayed = hp != null || ap != null
+    val homeAhead = anyPlayed && (hp ?: 0.0) > (ap ?: 0.0)
+    val awayAhead = anyPlayed && (ap ?: 0.0) > (hp ?: 0.0)
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        PlayerCell(row.home, now, mirrored = false, ahead = homeAhead, modifier = Modifier.weight(1f))
+        Box(
+            Modifier.width(44.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceVariant),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(row.slot.replace("/", "/\n"), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant, lineHeight = 12.sp)
+        }
+        PlayerCell(row.away, now, mirrored = true, ahead = awayAhead, modifier = Modifier.weight(1f))
     }
-    HorizontalDivider()
 }
 
-/** A player: name and game on the outside, points and projection toward the middle (ESPN's layout). */
+/** Name and game toward the outside, points over projection in a chip toward the middle. */
 @Composable
-private fun PlayerCell(spot: RosterSpot?, now: Long, mirrored: Boolean, modifier: Modifier) {
+private fun PlayerCell(spot: RosterSpot?, now: Long, mirrored: Boolean, ahead: Boolean, modifier: Modifier) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     if (spot == null) {
-        Text("Empty", modifier, style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = if (mirrored) TextAlign.End else TextAlign.Start)
+        Box(modifier.padding(12.dp), contentAlignment = if (mirrored) Alignment.CenterEnd else Alignment.CenterStart) {
+            Text("Empty", style = MaterialTheme.typography.bodySmall, color = muted)
+        }
         return
     }
     val p = spot.player
     val open = LocalOpenPlayer.current
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val info: @Composable (Modifier) -> Unit = { m ->
         Column(m, horizontalAlignment = if (mirrored) Alignment.End else Alignment.Start) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (!mirrored) PlayerPhoto(p, 28.dp, Modifier.padding(end = 6.dp))
-                Text(shortName(p.name), style = MaterialTheme.typography.bodyMedium, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                if (mirrored) Text("${p.proTeam} ", style = MaterialTheme.typography.labelSmall, color = muted)
+                Text(shortName(p.name), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 StatusChip(p)
-                if (mirrored) PlayerPhoto(p, 28.dp, Modifier.padding(start = 6.dp))
+                if (!mirrored) Text(" ${p.proTeam}", style = MaterialTheme.typography.labelSmall, color = muted)
             }
-            Text(
-                buildAnnotatedString { append("${p.proTeam} "); append(gameLine(p, now, muted)) },
-                style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (p.game?.state == NflGame.IN) Good else muted,
-                textAlign = if (mirrored) TextAlign.End else TextAlign.Start,
-            )
+            Text(gameLine(p, now, muted), style = MaterialTheme.typography.labelSmall, maxLines = 1,
+                overflow = TextOverflow.Ellipsis, textAlign = if (mirrored) TextAlign.End else TextAlign.Start,
+                color = if (p.game?.state == NflGame.IN) Good else muted)
             p.statLine?.let {
-                Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = muted)
+                Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurface)
             }
         }
     }
-    val points: @Composable () -> Unit = {
-        Column(horizontalAlignment = if (mirrored) Alignment.Start else Alignment.End) {
-            Text(if (p.gameStarted(now)) fmt1(p.pointsSoFar(now)) else "–", style = MaterialTheme.typography.titleSmall,
+    val chip: @Composable () -> Unit = {
+        Column(
+            Modifier.widthIn(min = 46.dp).clip(RoundedCornerShape(8.dp))
+                .background(if (ahead) Good.copy(alpha = 0.16f) else Color.Transparent)
+                .padding(horizontal = 6.dp, vertical = 3.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Text(if (p.gameStarted(now)) fmt1(p.pointsSoFar(now)) else "–", style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold)
-            Text(p.projected?.let { fmt1(it) } ?: "–", style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(p.projected?.let { fmt1(it) } ?: "–", style = MaterialTheme.typography.labelSmall, color = muted)
         }
     }
-    Row(modifier.clickable { open(p) }, verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        modifier.clickable { open(p) }.padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         if (mirrored) {
-            points()
+            chip()
             info(Modifier.weight(1f).padding(start = 6.dp))
         } else {
             info(Modifier.weight(1f).padding(end = 6.dp))
-            points()
+            chip()
         }
     }
 }

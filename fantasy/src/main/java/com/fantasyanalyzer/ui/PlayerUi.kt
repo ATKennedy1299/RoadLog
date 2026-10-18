@@ -125,9 +125,15 @@ fun PlayerPhoto(p: Player, size: Dp, modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun TeamLogo(url: String?, fallback: String, size: Dp, modifier: Modifier = Modifier) {
+fun TeamLogo(
+    url: String?,
+    fallback: String,
+    size: Dp,
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(8.dp),
+) {
     Box(
-        modifier.size(size).clip(RoundedCornerShape(8.dp)).background(MaterialTheme.colorScheme.surfaceVariant),
+        modifier.size(size).clip(shape).background(MaterialTheme.colorScheme.surfaceVariant),
         contentAlignment = Alignment.Center,
     ) {
         Text(fallback.take(4), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)

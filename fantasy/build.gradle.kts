@@ -87,6 +87,8 @@ dependencies {
 
     // Player photos and team logos
     implementation("io.coil-kt:coil-compose:2.6.0")
+    // ESPN's team logo packs are SVGs
+    implementation("io.coil-kt:coil-svg:2.6.0")
 
     // Keeps the ESPN cookies encrypted at rest
     implementation("androidx.security:security-crypto:1.0.0")

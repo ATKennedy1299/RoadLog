@@ -16,6 +16,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        coil.Coil.setImageLoader(buildImageLoader(applicationContext))
         enableEdgeToEdge()
         setContent {
             FantasyTheme { App() }
