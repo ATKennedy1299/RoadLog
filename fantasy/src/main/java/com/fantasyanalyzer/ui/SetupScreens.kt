@@ -279,7 +279,7 @@ fun EspnLoginScreen(onDone: (EspnLogin) -> Unit, onCancel: () -> Unit) {
     }
 }
 
-// ESPN's fantasy football hub; it has the Log In button and links to "My Leagues".
-private const val START_URL = "https://www.espn.com/fantasy/football/"
+// ESPN's sign-in page, which then lists the account's teams.
+private const val START_URL = "https://fantasy.espn.com/find-my-team"
 // The API host first, so the saved cookies are the ones ESPN's API will see.
 private val COOKIE_HOSTS = listOf(EspnClient.API_ORIGIN, "https://fantasy.espn.com", "https://www.espn.com", "https://espn.com")

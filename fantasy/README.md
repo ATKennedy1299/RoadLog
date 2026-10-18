@@ -82,7 +82,7 @@ the APK lands in `fantasy/build/outputs/apk/debug/`.
 ## Connecting your private league
 
 1. Open the app → **Connect my league** → **Sign in with ESPN**.
-2. Tap **Log In** on ESPN's page and sign in. Once the bar at the top says
+2. Sign in on ESPN's page. Once the bar at the top says
    *Signed in*, tap **Done**.
 3. The app lists your football leagues; pick one and tap **Load my league**.
    (If the list doesn't come up, open your league in the sign-in page so the
