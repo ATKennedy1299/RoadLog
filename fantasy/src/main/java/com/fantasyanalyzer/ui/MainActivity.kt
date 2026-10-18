@@ -31,6 +31,7 @@ private fun App(vm: LeagueViewModel = viewModel()) {
     val state by vm.state.collectAsStateWithLifecycle()
     val leagueSearch by vm.leagueSearch.collectAsStateWithLifecycle()
     val weekLineups by vm.weekLineups.collectAsStateWithLifecycle()
+    val saveState by vm.saveState.collectAsStateWithLifecycle()
     var screen by rememberSaveable { mutableStateOf(Screen.Dashboard) }
     // Edits on the setup screen, kept while the user detours through the ESPN sign-in.
     var draft by remember(settings) { mutableStateOf(settings) }
@@ -45,6 +46,7 @@ private fun App(vm: LeagueViewModel = viewModel()) {
             onSetMyTeam = vm::setMyTeam,
             weekLineups = weekLineups,
             onRequestWeek = vm::requestWeek,
+            lineupActions = LineupActions(saveState, vm::submitLineup, vm::clearSaveState),
         )
         Screen.Settings -> SettingsScreen(
             draft = draft,

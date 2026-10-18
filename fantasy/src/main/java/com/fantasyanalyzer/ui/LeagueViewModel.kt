@@ -20,6 +20,7 @@ import com.fantasyanalyzer.data.EspnClient
 import com.fantasyanalyzer.data.EspnException
 import com.fantasyanalyzer.data.EspnLogin
 import com.fantasyanalyzer.data.LeagueRef
+import com.fantasyanalyzer.data.LineupMove
 import com.fantasyanalyzer.data.RosterSpot
 import com.fantasyanalyzer.data.LeagueData
 import com.fantasyanalyzer.data.SampleData
@@ -85,6 +86,14 @@ object BrowserSession {
     }
 }
 
+/** Sending lineup changes to ESPN. */
+sealed interface SaveState {
+    data object Idle : SaveState
+    data object Saving : SaveState
+    data class Saved(val message: String) : SaveState
+    data class Failed(val message: String) : SaveState
+}
+
 /** A week's lineups for the Matchup tab. */
 sealed interface WeekLineups {
     data object Loading : WeekLineups
@@ -115,6 +124,38 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _weekLineups = MutableStateFlow<Map<Int, WeekLineups>>(emptyMap())
     val weekLineups: StateFlow<Map<Int, WeekLineups>> = _weekLineups.asStateFlow()
+
+    private val _saveState = MutableStateFlow<SaveState>(SaveState.Idle)
+    val saveState: StateFlow<SaveState> = _saveState.asStateFlow()
+
+    /** Sends lineup [moves] for [teamId] to ESPN, then reloads so the app shows what ESPN has. */
+    fun submitLineup(teamId: Int, scoringPeriod: Int, moves: List<LineupMove>) {
+        val s = _settings.value
+        if (s.useDemo) {
+            _saveState.value = SaveState.Failed("This is the demo league, so there's no ESPN team to save to.")
+            return
+        }
+        if (moves.isEmpty() || _saveState.value == SaveState.Saving) return
+        _saveState.value = SaveState.Saving
+        val cookies = cookieCandidates(s)
+        viewModelScope.launch {
+            _saveState.value = try {
+                val msg = withContext(Dispatchers.IO) {
+                    EspnClient(s.leagueId.toLong(), s.year, cookies, userAgent).submitLineup(teamId, scoringPeriod, moves)
+                }
+                SaveState.Saved(msg)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                SaveState.Failed(e.message ?: "Couldn't save the lineup.")
+            }
+            if (_saveState.value is SaveState.Saved) load()
+        }
+    }
+
+    fun clearSaveState() {
+        if (_saveState.value != SaveState.Saving) _saveState.value = SaveState.Idle
+    }
 
     /** Bumped on every load, so a week fetched for an older load is thrown away. */
     private var generation = 0

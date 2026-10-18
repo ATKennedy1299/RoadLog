@@ -73,6 +73,7 @@ fun DashboardScreen(
     onSetMyTeam: (Int) -> Unit,
     weekLineups: Map<Int, WeekLineups>,
     onRequestWeek: (Int) -> Unit,
+    lineupActions: LineupActions,
 ) {
     val dashboard = (state as? UiState.Loaded)?.dashboard
     Scaffold(
@@ -124,7 +125,7 @@ fun DashboardScreen(
                 is UiState.Loaded -> if (state.dashboard.standings.isEmpty()) {
                     Centered { Text("No completed games yet this season.") }
                 } else {
-                    Tabs(state.dashboard, state.dashboard.myTeamId(settings), onSetMyTeam, weekLineups, onRequestWeek)
+                    Tabs(state.dashboard, state.dashboard.myTeamId(settings), onSetMyTeam, weekLineups, onRequestWeek, lineupActions)
                 }
             }
         }
@@ -147,6 +148,7 @@ private fun Tabs(
     onSetMyTeam: (Int) -> Unit,
     weekLineups: Map<Int, WeekLineups>,
     onRequestWeek: (Int) -> Unit,
+    lineupActions: LineupActions,
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
     Column {
@@ -159,7 +161,7 @@ private fun Tabs(
             when (tab) {
                 0 -> standingsTab(d)
                 1 -> item(key = "matchup") { MatchupTab(d, myTeam, weekLineups, onRequestWeek) }
-                2 -> myTeamTab(d, myTeam, onSetMyTeam)
+                2 -> myTeamTab(d, myTeam, onSetMyTeam, lineupActions)
                 3 -> waiversTab(d, myTeam, onSetMyTeam)
                 4 -> playoffsTab(d, myTeam)
                 5 -> powerTab(d)

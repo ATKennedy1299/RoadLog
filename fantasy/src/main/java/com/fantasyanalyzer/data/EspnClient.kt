@@ -29,6 +29,8 @@ class EspnClient(
     cookieHeaders: List<String> = emptyList(),
     private val userAgent: String? = null,
     private val baseUrl: String = BASE_URL,
+    /** ESPN takes changes on a separate host from reads. */
+    private val writeUrl: String = WRITE_URL,
 ) {
     private val candidates: List<String?> = cookieHeaders.distinct().ifEmpty { listOf(null) }
     private var working: String? = null
@@ -51,6 +53,37 @@ class EspnClient(
             """"sortDraftRanks":{"sortPriority":100,"sortAsc":true,"value":"STANDARD"},""" +
             """"filterStatsForTopScoringPeriodIds":{"value":3,"additionalValue":["00$year","10$year","11$year$week"]}}}""",
     )
+
+    /**
+     * Sends lineup changes to ESPN, the way ESPN's site does: one transaction
+     * posted to the league's write API. Returns ESPN's confirmation, or throws
+     * with ESPN's reason. Tries each cookie set until one is accepted.
+     */
+    fun submitLineup(teamId: Int, scoringPeriod: Int, moves: List<LineupMove>): String {
+        require(moves.isNotEmpty())
+        val url = "$writeUrl/seasons/$year/segments/0/leagues/$leagueId/transactions/"
+        var last: Response? = null
+        for (cookie in listOfNotNull(working) + candidates.filterNotNull()) {
+            val swid = EspnLogin.cookieValues(listOf(cookie), "SWID").firstOrNull() ?: continue
+            val body = LineupEditor.transaction(teamId, swid, scoringPeriod, moves).toString()
+            val resp = request(url, cookie, emptyMap(), userAgent, postJson = body)
+            last = resp
+            if (resp.code == 401 || resp.code == 403) continue
+            if (resp.code !in 200..299) break
+            val result = parseObject(resp.body)
+            val status = result?.optString("status").orEmpty()
+            if (status.contains("FAIL", ignoreCase = true) || status.contains("REJECT", ignoreCase = true)) {
+                throw EspnException("ESPN didn't accept the lineup: ${espnMessage(resp.body) ?: status}")
+            }
+            working = cookie
+            return if (status.isNotBlank() && status != "null") "ESPN: ${status.lowercase()}" else "Lineup saved on ESPN."
+        }
+        val r = last ?: throw EspnException("Sign in to ESPN to change your lineup.", authProblem = true)
+        throw EspnException(
+            "ESPN didn't accept the lineup (HTTP ${r.code})" + (espnMessage(r.body)?.let { ": $it" } ?: "."),
+            authProblem = r.code == 401 || r.code == 403,
+        )
+    }
 
     /** NFL teams with their bye weeks. Public; no cookies needed. */
     fun proTeams(): JSONObject {
@@ -163,6 +196,7 @@ class EspnClient(
 
     companion object {
         private const val BASE_URL = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl"
+        private const val WRITE_URL = "https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl"
 
         /** The host the league API lives on, for reading the in-app browser's cookies for it. */
         const val API_ORIGIN = "https://lm-api-reads.fantasy.espn.com"
@@ -225,7 +259,13 @@ class EspnClient(
 
         private class Response(val code: Int, val body: String)
 
-        private fun request(url: String, cookie: String?, headers: Map<String, String>, userAgent: String?): Response {
+        private fun request(
+            url: String,
+            cookie: String?,
+            headers: Map<String, String>,
+            userAgent: String?,
+            postJson: String? = null,
+        ): Response {
             val conn = URL(url).openConnection() as HttpURLConnection
             try {
                 conn.connectTimeout = 20_000
@@ -235,6 +275,12 @@ class EspnClient(
                 userAgent?.let { conn.setRequestProperty("User-Agent", it) }
                 cookie?.let { conn.setRequestProperty("Cookie", it) }
                 headers.forEach { (k, v) -> conn.setRequestProperty(k, v) }
+                if (postJson != null) {
+                    conn.requestMethod = "POST"
+                    conn.doOutput = true
+                    conn.setRequestProperty("Content-Type", "application/json")
+                    conn.outputStream.use { it.write(postJson.toByteArray()) }
+                }
                 val code = conn.responseCode
                 val stream = if (code in 200..299) conn.inputStream else conn.errorStream
                 val body = stream?.bufferedReader()?.use { it.readText() } ?: ""

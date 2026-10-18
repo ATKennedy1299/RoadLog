@@ -17,6 +17,12 @@ project and CI.
   worth), and warnings for starters who are on bye, out, doubtful or
   questionable, or empty slots. Players whose games have started are left
   where they are.
+  You can also set your lineup here: tap a player to move them (a full slot
+  swaps), or apply the suggested lineup, then **Save to ESPN**. The app checks
+  the lineup first (slot limits, eligibility, locked players), shows every
+  move for confirmation, sends it the way ESPN's website does, and reloads.
+  ESPN doesn't publish this API, so if it changes, saving may stop working
+  while everything else carries on.
 - **Waivers**: free agents worth more than the weakest player you have at
   their position (60% ESPN projection, 40% last-3-week average), fill-ins for
   starters who can't play this week, trending adds, and the best available at
