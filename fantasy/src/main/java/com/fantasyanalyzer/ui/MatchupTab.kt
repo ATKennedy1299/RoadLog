@@ -14,6 +14,9 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.PagerDefaults
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -129,14 +132,21 @@ private fun WeekMatchups(d: Dashboard, matchups: List<Matchup>, lineups: WeekLin
     val league = d.league
     val now = remember(d, lineups) { System.currentTimeMillis() }
     val rosters = (lineups as? WeekLineups.Loaded)?.rosters
-    val views = matchups.map { Matchups.view(league, it, rosters, now) }
-    val pager = rememberPagerState { views.size }
+    // Computed once per week and lineup load, not on every frame of a swipe.
+    val views = remember(d, matchups, rosters, now) { matchups.map { Matchups.view(league, it, rosters, now) } }
+    val n = views.size
+    // Looping: lots of virtual pages cycling through the matchups, starting in the middle,
+    // so swiping past either end wraps around.
+    val loops = if (n > 1) LOOPS else 1
+    val pager = rememberPagerState(initialPage = if (n > 1) (loops / 2) * n else 0) { n * loops }
     val scope = rememberCoroutineScope()
     val tiles = rememberLazyListState()
-    val idx = pager.currentPage.coerceIn(0, views.lastIndex)
+    // Dots and tile highlight follow the finger; the lineup table and tile scroll wait for the card to
+    // settle, so nothing heavy rebuilds mid-swipe.
+    val idx = pager.currentPage % n
+    val settled = pager.settledPage % n
 
-    // Keep the current matchup's tile in view as the card is swiped.
-    LaunchedEffect(idx) { tiles.animateScrollToItem((idx - 1).coerceAtLeast(0)) }
+    LaunchedEffect(settled) { tiles.animateScrollToItem((settled - 1).coerceAtLeast(0)) }
 
     // Every matchup this week; tap one, or swipe the card below.
     LazyRow(
@@ -145,17 +155,28 @@ private fun WeekMatchups(d: Dashboard, matchups: List<Matchup>, lineups: WeekLin
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         items(views.size) { i ->
-            MatchupTile(d, views[i], i == idx) { scope.launch { pager.animateScrollToPage(i) } }
+            MatchupTile(d, views[i], i == idx) {
+                // Nearest virtual page showing matchup i, so a tap never spins through the loop.
+                val base = pager.currentPage - idx
+                val target = listOf(base + i - n, base + i, base + i + n).minBy { kotlin.math.abs(it - pager.currentPage) }
+                scope.launch { pager.animateScrollToPage(target, animationSpec = SMOOTH) }
+            }
         }
     }
 
     // The card follows the finger; let go past halfway (or flick) and it settles on the next matchup.
-    HorizontalPager(state = pager, pageSpacing = 12.dp, modifier = Modifier.fillMaxWidth()) { page ->
-        ScoreCard(d, views[page])
+    HorizontalPager(
+        state = pager,
+        pageSpacing = 12.dp,
+        beyondBoundsPageCount = 1, // neighbours are ready before they slide in
+        flingBehavior = PagerDefaults.flingBehavior(state = pager, snapAnimationSpec = SMOOTH),
+        modifier = Modifier.fillMaxWidth(),
+    ) { page ->
+        ScoreCard(d, views[page % n])
     }
-    if (views.size > 1) PageDots(views.size, idx)
+    if (n > 1) PageDots(n, idx)
 
-    val v = views[idx]
+    val v = views[settled]
     val away = v.away
     if (!v.matchup.complete && rosters != null && away != null) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
@@ -190,6 +211,12 @@ private fun WeekMatchups(d: Dashboard, matchups: List<Matchup>, lineups: WeekLin
         }
     }
 }
+
+/** Virtual page sets for looping; plenty for any amount of swiping. */
+private const val LOOPS = 1000
+
+/** A soft, no-bounce settle for the score card. */
+private val SMOOTH = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
 
 // --- Week bar -------------------------------------------------------------------------------
 
