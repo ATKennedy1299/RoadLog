@@ -10,6 +10,11 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -48,6 +53,8 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -77,6 +84,7 @@ import com.fantasyanalyzer.analysis.orientedFor
 import com.fantasyanalyzer.data.Matchup
 import com.fantasyanalyzer.data.NflGame
 import com.fantasyanalyzer.data.RosterSpot
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun MatchupTab(
@@ -93,13 +101,11 @@ internal fun MatchupTab(
     }
     val startWeek = league.currentWeek.coerceIn(weeks.first(), weeks.last())
     var week by rememberSaveable(league.id, league.year) { mutableIntStateOf(startWeek) }
-    var selected by rememberSaveable(week) { mutableIntStateOf(0) }
     // Keyed on the dashboard too, so a refresh (which clears loaded weeks) asks again.
     LaunchedEffect(week, d) { onRequestWeek(week) }
 
     // The user's team always on the left.
     val matchups = Matchups.inWeek(league, week, myTeam).map { it.orientedFor(myTeam) }
-    val now = remember(d, weekLineups[week]) { System.currentTimeMillis() }
 
     Column(Modifier.padding(top = 4.dp)) {
         WeekBar(week, weeks, weekBadge(week, league.currentWeek, matchups)) { week = it }
@@ -110,83 +116,76 @@ internal fun MatchupTab(
             Text("No matchups this week.", Modifier.padding(top = 16.dp))
             return@Column
         }
-
-        val lineups = weekLineups[week]
-        val rosters = (lineups as? WeekLineups.Loaded)?.rosters
-        val views = matchups.map { Matchups.view(league, it, rosters, now) }
-        val idx = selected.coerceIn(0, views.lastIndex)
-
-        // Every matchup this week; tap one, or swipe the card below.
-        Row(
-            Modifier.horizontalScroll(rememberScrollState()).padding(vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            views.forEachIndexed { i, v -> MatchupTile(d, v, i == idx) { selected = i } }
+        // A fresh pager per week, so swiping always drives the week on screen.
+        key(week) {
+            WeekMatchups(d, matchups, weekLineups[week])
         }
+    }
+}
 
-        // Swipe the score card (just the card) to flip through the week's matchups.
-        AnimatedContent(
-            targetState = idx,
-            transitionSpec = {
-                val dir = if (targetState > initialState) 1 else -1
-                (slideInHorizontally { w -> dir * w } + fadeIn()) togetherWith (slideOutHorizontally { w -> -dir * w } + fadeOut())
-            },
-            label = "matchup card",
-        ) { i ->
-            val shown = views.getOrNull(i) ?: return@AnimatedContent
-            Box(
-                Modifier.pointerInput(i, views.size) {
-                    val threshold = 60.dp.toPx()
-                    var total = 0f
-                    detectHorizontalDragGestures(
-                        onDragStart = { total = 0f },
-                        onDragEnd = {
-                            if (total < -threshold && i < views.lastIndex) selected = i + 1
-                            else if (total > threshold && i > 0) selected = i - 1
-                        },
-                    ) { change, amount ->
-                        change.consume()
-                        total += amount
-                    }
-                },
-            ) {
-                ScoreCard(d, shown)
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun WeekMatchups(d: Dashboard, matchups: List<Matchup>, lineups: WeekLineups?) {
+    val league = d.league
+    val now = remember(d, lineups) { System.currentTimeMillis() }
+    val rosters = (lineups as? WeekLineups.Loaded)?.rosters
+    val views = matchups.map { Matchups.view(league, it, rosters, now) }
+    val pager = rememberPagerState { views.size }
+    val scope = rememberCoroutineScope()
+    val tiles = rememberLazyListState()
+    val idx = pager.currentPage.coerceIn(0, views.lastIndex)
+
+    // Keep the current matchup's tile in view as the card is swiped.
+    LaunchedEffect(idx) { tiles.animateScrollToItem((idx - 1).coerceAtLeast(0)) }
+
+    // Every matchup this week; tap one, or swipe the card below.
+    LazyRow(
+        state = tiles,
+        modifier = Modifier.padding(vertical = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        items(views.size) { i ->
+            MatchupTile(d, views[i], i == idx) { scope.launch { pager.animateScrollToPage(i) } }
+        }
+    }
+
+    // The card follows the finger; let go past halfway (or flick) and it settles on the next matchup.
+    HorizontalPager(state = pager, pageSpacing = 12.dp, modifier = Modifier.fillMaxWidth()) { page ->
+        ScoreCard(d, views[page])
+    }
+    if (views.size > 1) PageDots(views.size, idx)
+
+    val v = views[idx]
+    val away = v.away
+    if (!v.matchup.complete && rosters != null && away != null) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
+            Text(leftToPlay(rosters[v.home.teamId], now), Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(leftToPlay(rosters[away.teamId], now), Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.End)
+        }
+    }
+
+    when {
+        lineups == null || lineups is WeekLineups.Loading -> Row(
+            Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center,
+        ) { CircularProgressIndicator() }
+        lineups is WeekLineups.Unavailable -> Text(lineups.message, Modifier.padding(top = 16.dp),
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        v.starters.all { it.home == null && it.away == null } -> Text("No lineups set for this matchup yet.",
+            Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        else -> {
+            Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 12.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Text("STARTERS", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (d.gamesInProgress) FieldLegend()
             }
-        }
-        if (views.size > 1) PageDots(views.size, idx)
-
-        val v = views[idx]
-        val away = v.away
-        if (!v.matchup.complete && rosters != null && away != null) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
-                Text(leftToPlay(rosters[v.home.teamId], now), Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(leftToPlay(rosters[away.teamId], now), Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.End)
-            }
-        }
-
-        when {
-            lineups == null || lineups is WeekLineups.Loading -> Row(
-                Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center,
-            ) { CircularProgressIndicator() }
-            lineups is WeekLineups.Unavailable -> Text(lineups.message, Modifier.padding(top = 16.dp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            v.starters.all { it.home == null && it.away == null } -> Text("No lineups set for this matchup yet.",
-                Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            else -> {
-                Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 12.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    Text("STARTERS", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (d.gamesInProgress) FieldLegend()
-                }
-                LineupPanel(v.starters, now)
-                // The bench follows straight on; the gap and BE in the middle mark where it starts.
-                if (v.bench.isNotEmpty()) {
-                    LineupPanel(v.bench, now, Modifier.padding(top = 14.dp))
-                }
+            LineupPanel(v.starters, now)
+            // The bench follows straight on; the gap and BE in the middle mark where it starts.
+            if (v.bench.isNotEmpty()) {
+                LineupPanel(v.bench, now, Modifier.padding(top = 14.dp))
             }
         }
     }
