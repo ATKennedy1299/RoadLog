@@ -85,6 +85,9 @@ dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.2")
 
+    // Player photos and team logos
+    implementation("io.coil-kt:coil-compose:2.6.0")
+
     // Keeps the ESPN cookies encrypted at rest
     implementation("androidx.security:security-crypto:1.0.0")
 

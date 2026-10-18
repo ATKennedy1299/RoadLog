@@ -12,7 +12,11 @@ project and CI.
   with each player's NFL game, kickoff or Live/Final, points and
   projection. Bench on demand. Weeks other than the current one load from
   ESPN the first time you open them.
-- **My Team**: this week's matchup with your win chances, start/sit advice
+- **My Team** (ESPN-style roster for any week, ‹ › to switch): slot pills you
+  tap to move players, headshots, % rostered / % started, kickoff or live
+  score with the opponent's rank against the position (green = soft, red =
+  tough), stat lines, and points over projection.
+  Also: this week's matchup with your win chances, start/sit advice
   from ESPN's projections (best lineup, what to swap, how many points it's
   worth), and warnings for starters who are on bye, out, doubtful or
   questionable, or empty slots. Players whose games have started are left
@@ -48,6 +52,22 @@ project and CI.
 - **Head-to-head** grid and **records** (high/low scores, blowouts, closest
   games, most points in a loss).
 - **Demo mode** with a made-up league, to look around before connecting.
+
+### Polish and speed
+
+- **Fast start**: ESPN's answers are saved on the phone, so the app opens on
+  the last data instantly and refreshes in the background. Finished weeks
+  never change, so they're only ever downloaded once.
+- **Live mode** (LIVE in the top bar): refreshes the current week's lineups
+  and NFL scores every minute while games are on (every 5 otherwise), only
+  while the app is open. Live game state, scores and clocks come from ESPN's
+  public NFL scoreboard.
+- **Photos and logos**: player headshots and NFL logos from ESPN's image
+  server, fantasy team logos from your league.
+- **Tap any player** for a sheet with this week's game and stat line, a game
+  log from the league's box scores, and upcoming opponents with how they rank
+  against the position.
+- Saving a lineup re-fetches only that week instead of reloading everything.
 
 ## Getting the APK
 

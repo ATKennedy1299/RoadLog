@@ -23,6 +23,8 @@ data class Team(
     /** ESPN account ids (SWIDs) of the team's managers. */
     val ownerIds: List<String> = emptyList(),
     val divisionId: Int = 0,
+    /** Team logo image URL the manager set on ESPN, if any. */
+    val logo: String? = null,
 )
 
 data class Matchup(
@@ -116,6 +118,13 @@ data class Player(
     val gameStart: Long? = null,
     /** This week's NFL opponent, "@DEN" away or "DEN" at home, when known. */
     val opponent: String? = null,
+    val percentStarted: Double = 0.0,
+    /** How the opponent ranks against this position, 1 = allows the fewest points; null when unknown. */
+    val opponentRank: Int? = null,
+    /** This week's box score line, e.g. "12 REC, 134 YDS"; null before kickoff. */
+    val statLine: String? = null,
+    /** Live NFL game state from ESPN's scoreboard (current week only). */
+    val game: NflGame? = null,
 ) {
     val isOut: Boolean get() = onBye || injuryStatus in OUT_STATUSES
 
@@ -124,14 +133,16 @@ data class Player(
 
     val recentAvg: Double? get() = recentPoints.takeIf { it.isNotEmpty() }?.average()
 
-    /** Their game has kicked off: by the schedule if we have it, else because ESPN has points for them. */
-    fun gameStarted(now: Long): Boolean = gameStart?.let { it <= now } ?: (actual != null)
+    /** Their game has kicked off: by the live scoreboard, else the schedule, else because ESPN has points for them. */
+    fun gameStarted(now: Long): Boolean =
+        game?.let { it.state != NflGame.PRE } ?: gameStart?.let { it <= now } ?: (actual != null)
 
     /** Points scored so far, counting only once their game has kicked off. */
     fun pointsSoFar(now: Long): Double = if (gameStarted(now)) actual ?: 0.0 else 0.0
 
     /** Share of their game still to play: 1 before kickoff, 0 once it's (probably) over. */
     fun remainingShare(now: Long): Double {
+        game?.let { return it.remainingShare }
         if (!gameStarted(now)) return 1.0
         val start = gameStart ?: return 0.0 // no schedule: treat points as final
         return (1.0 - (now - start).toDouble() / GAME_LENGTH_MS).coerceIn(0.0, 1.0)
@@ -159,6 +170,34 @@ data class RosterSpot(val player: Player, val slotId: Int, val locked: Boolean =
     fun isLocked(now: Long): Boolean = locked || player.gameStarted(now)
 }
 
+/**
+ * A live NFL game from ESPN's public scoreboard. [state] is "pre", "in" or
+ * "post"; [detail] is ESPN's short status ("Sun 1:00 PM", "Q3 4:12", "Final/OT").
+ */
+data class NflGame(
+    val state: String,
+    val detail: String,
+    val homeAbbrev: String,
+    val awayAbbrev: String,
+    val homeScore: Int,
+    val awayScore: Int,
+    /** Share of regulation still to play, from the period and clock. */
+    val remainingShare: Double,
+) {
+    /** "14-17" from [team]'s side. */
+    fun scoreFor(team: String): String =
+        if (team == homeAbbrev) "$homeScore-$awayScore" else "$awayScore-$homeScore"
+
+    companion object {
+        const val PRE = "pre"
+        const val IN = "in"
+        const val POST = "post"
+    }
+}
+
+/** Position id -> opponent pro team id -> rank against that position (1 = toughest). */
+typealias PositionRatings = Map<Int, Map<Int, Int>>
+
 /** One NFL game from a team's side: kickoff (epoch ms), opponent's pro team id, and whether it's at home. */
 data class ProGame(val kickoff: Long, val opponentId: Int, val home: Boolean)
 
@@ -181,4 +220,21 @@ data class LeagueData(
     val outlook: WeekOutlook? = null,
     /** NFL teams by ESPN pro team id; empty if the pro schedule couldn't be loaded. */
     val proTeams: Map<Int, ProTeam> = emptyMap(),
+    val ratings: PositionRatings = emptyMap(),
+    /** This NFL week's games by team abbreviation. */
+    val scoreboard: Map<String, NflGame> = emptyMap(),
+    /** When this data came from ESPN (epoch ms). */
+    val fetchedAt: Long = 0,
 )
+
+/** Fills in each player's live game from the scoreboard. */
+fun Map<Int, List<RosterSpot>>.withGames(scoreboard: Map<String, NflGame>): Map<Int, List<RosterSpot>> =
+    if (scoreboard.isEmpty()) this
+    else mapValues { (_, r) -> r.map { s -> scoreboard[s.player.proTeam]?.let { s.copy(player = s.player.copy(game = it)) } ?: s } }
+
+/** ESPN headshot for a player, or the team logo for a D/ST (ESPN gives those negative ids). */
+fun Player.photoUrl(): String =
+    if (id < 0 || position == "D/ST") nflLogoUrl(proTeam)
+    else "https://a.espncdn.com/i/headshots/nfl/players/full/$id.png"
+
+fun nflLogoUrl(abbrev: String): String = "https://a.espncdn.com/i/teamlogos/nfl/500/${abbrev.lowercase()}.png"

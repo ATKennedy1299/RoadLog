@@ -55,9 +55,9 @@ internal fun pct(p: Double): String = when {
     else -> String.format(Locale.US, "%.1f%%", p * 100)
 }
 
-private fun Player.tag(): String = "${position} · ${proTeam}"
+internal fun Player.tag(): String = "${position} · ${proTeam}"
 
-private fun Player.statusText(): String? = when {
+internal fun Player.statusText(): String? = when {
     onBye -> "BYE"
     injuryStatus == "ACTIVE" || injuryStatus == "NORMAL" -> null
     injuryStatus == "INJURY_RESERVE" -> "IR"
@@ -80,7 +80,7 @@ internal fun StatusChip(p: Player) {
 }
 
 @Composable
-private fun TeamPicker(d: Dashboard, myTeam: Int?, onPick: (Int) -> Unit) {
+internal fun TeamPicker(d: Dashboard, myTeam: Int?, onPick: (Int) -> Unit) {
     val ids = d.league.teams.keys.sortedBy { d.league.teamName(it) }
     Column(Modifier.padding(top = 12.dp)) {
         Picker(
@@ -102,295 +102,12 @@ private fun TeamPicker(d: Dashboard, myTeam: Int?, onPick: (Int) -> Unit) {
 }
 
 @Composable
-private fun NoOutlook(d: Dashboard) {
+internal fun NoOutlook(d: Dashboard) {
     Text(
         if (d.league.seasonOver) "The season's over, so there's no lineup to set."
         else "ESPN didn't return this week's projections. Tap refresh to try again.",
         Modifier.padding(top = 24.dp),
     )
-}
-
-// --- My Team ----------------------------------------------------------------------
-
-internal fun LazyListScope.myTeamTab(d: Dashboard, myTeam: Int?, onPick: (Int) -> Unit, lineup: LineupActions) {
-    item { TeamPicker(d, myTeam, onPick) }
-    val outlook = d.data.outlook
-    if (myTeam == null) return
-    if (outlook == null) {
-        item { NoOutlook(d) }
-        return
-    }
-    val roster = outlook.rosters[myTeam]
-    if (roster == null) {
-        item { Text("No roster found for this team in week ${outlook.week}.", Modifier.padding(top = 24.dp)) }
-        return
-    }
-    item {
-        // One clock per load, so every number on the screen agrees; refresh to update.
-        val now = remember(d) { System.currentTimeMillis() }
-        val advice = remember(d, myTeam) { Outlook.startSit(roster, d.league.lineupSlotCounts, now) }
-        val matchup = remember(d, myTeam) { Outlook.matchup(d.league, outlook, myTeam, now) }
-
-        if (matchup != null) {
-            SectionTitle(
-                "Week ${outlook.week} matchup",
-                if (matchup.started) "Points so far, with projected finals. Tap refresh for the latest."
-                else "Nobody has played yet; projections from ESPN.",
-            )
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        ScoreColumn("You", matchup.myActual, matchup.myProjection, Alignment.Start, Modifier.weight(1f))
-                        Text("vs", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        ScoreColumn(d.league.teamName(matchup.opponentId), matchup.opponentActual, matchup.opponentProjection,
-                            Alignment.End, Modifier.weight(1f))
-                    }
-                    LinearProgressIndicator(
-                        progress = { matchup.winProbability.toFloat() },
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                    )
-                    Text("Win chance ${pct(matchup.winProbability)}", fontWeight = FontWeight.SemiBold)
-                    if (matchup.winProbabilityBest - matchup.winProbability > 0.005) {
-                        Text(
-                            "${pct(matchup.winProbabilityBest)} with the best lineup (${fmt1(matchup.myBestProjection)} projected)",
-                            style = MaterialTheme.typography.bodySmall, color = Good,
-                        )
-                    }
-                }
-            }
-        }
-
-        if (advice.alerts.isNotEmpty() || advice.emptySlots > 0) {
-            SectionTitle("Heads up")
-            if (advice.emptySlots > 0) {
-                Text("⚠ ${advice.emptySlots} empty starting slot${if (advice.emptySlots > 1) "s" else ""}", color = Bad,
-                    modifier = Modifier.padding(vertical = 2.dp))
-            }
-            advice.alerts.forEach { a ->
-                Text(
-                    "${if (a.severe) "⚠" else "•"} ${a.player.name} ${a.message}",
-                    color = if (a.severe) Bad else Warn,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(vertical = 2.dp),
-                )
-            }
-        }
-
-        // --- Editing: a target lineup (player id -> slot) that starts as ESPN's ---
-        var target by remember(d, myTeam) { mutableStateOf(LineupEditor.current(roster)) }
-        var picking by remember(d, myTeam) { mutableStateOf<RosterSpot?>(null) }
-        var confirming by remember(d, myTeam) { mutableStateOf(false) }
-        val counts = d.league.lineupSlotCounts
-        val pending = LineupEditor.moves(roster, target)
-        val problem = LineupEditor.problem(roster, target, counts, now)
-        val suggested = remember(d, myTeam) {
-            LineupEditor.lineupFor(roster, advice.bestLineup.map { it.second.id }.toSet(), counts, now)
-        }
-
-        SectionTitle("Start / sit", "Players whose games have started can't be moved, so they're left out.")
-        if (advice.start.isEmpty() && advice.sit.isEmpty()) {
-            Text("✓ Your lineup is already the best by ESPN's projections.", color = Good)
-        } else {
-            Card(colors = CardDefaults.cardColors(containerColor = Good.copy(alpha = 0.10f)), modifier = Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("+${fmt1(advice.gain)} projected points available", fontWeight = FontWeight.SemiBold, color = Good)
-                    advice.start.forEach { p ->
-                        Text("Start ${p.name} (${p.tag()}) · ${fmt1(p.expected)}", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    advice.sit.forEach { p ->
-                        Text("Bench ${p.name} (${p.tag()}) · ${fmt1(p.expected)}", style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    if (suggested != null && suggested != target) {
-                        Button(onClick = { target = suggested; lineup.onDismiss() }, Modifier.padding(top = 4.dp)) {
-                            Text("Use suggested lineup")
-                        }
-                    }
-                }
-            }
-        }
-
-        when (val st = lineup.saveState) {
-            is SaveState.Saved -> Text("✓ ${st.message}", color = Good, fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(top = 12.dp))
-            is SaveState.Failed -> Text(st.message, color = Bad, modifier = Modifier.padding(top = 12.dp))
-            else -> {}
-        }
-
-        if (pending.isNotEmpty()) {
-            SectionTitle("Your changes", "Not on ESPN until you save.")
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    pending.forEach { m ->
-                        Text("${m.name}: ${slotName(m.from)} → ${slotName(m.to)}", style = MaterialTheme.typography.bodyMedium)
-                    }
-                    problem?.let { Text(it, color = Bad, style = MaterialTheme.typography.bodySmall) }
-                    Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { target = LineupEditor.current(roster); lineup.onDismiss() }) { Text("Discard") }
-                        Button(
-                            onClick = { confirming = true },
-                            enabled = problem == null && lineup.saveState != SaveState.Saving,
-                        ) {
-                            Text(if (lineup.saveState == SaveState.Saving) "Saving…" else "Save to ESPN")
-                        }
-                    }
-                }
-            }
-        }
-
-        val bestSlot = advice.bestLineup.associate { (slot, p) -> p.id to slot }
-        val slotOrder = d.league.lineupSlotCounts.keys.sortedBy { Matchups.slotRank(it) }
-        // Rows show the lineup as edited, so moved players jump between Starters and Bench.
-        val shown = roster.map { it.copy(slotId = target[it.player.id] ?: it.slotId) }
-        val original = roster.associate { it.player.id to it.slotId }
-        val starters = shown.filter { it.started }
-            .sortedWith(compareBy<RosterSpot> { slotOrder.indexOf(it.slotId).let { i -> if (i < 0) Int.MAX_VALUE else i } }
-                .thenByDescending { it.player.expected })
-        val bench = shown.filter { !it.started }
-            .sortedWith(compareBy<RosterSpot> { it.slotId == IR }.thenByDescending { it.player.expected })
-        val edit = { s: RosterSpot -> picking = roster.first { it.player.id == s.player.id } }
-
-        SectionTitle("Starters", "Tap a player to move them · 🔒 = game has started")
-        RosterHeader()
-        starters.forEach { RosterRow(it, original.getValue(it.player.id), bestSlot, now, edit) }
-        HorizontalDivider(Modifier.padding(vertical = 4.dp))
-        Row(Modifier.padding(vertical = 4.dp)) {
-            Text("Total", Modifier.weight(1.8f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
-            Text(fmt1(starters.sumOf { it.player.pointsSoFar(now) }), Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
-            Text(fmt1(starters.sumOf { it.player.expectedFinal(now) }), Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-
-        SectionTitle("Bench")
-        RosterHeader()
-        bench.forEach { RosterRow(it, original.getValue(it.player.id), bestSlot, now, edit) }
-
-        picking?.let { spot ->
-            val here = target[spot.player.id] ?: spot.slotId
-            AlertDialog(
-                onDismissRequest = { picking = null },
-                title = { Text("Move ${spot.player.name}") },
-                text = {
-                    Column {
-                        LineupEditor.allowedSlots(spot.player, counts).sortedBy { Matchups.slotRank(it) }.forEach { slot ->
-                            val occupants = shown.filter { it.slotId == slot && it.player.id != spot.player.id }
-                            val full = slot != BENCH && occupants.size >= (counts[slot] ?: 0)
-                            val note = when {
-                                slot == here -> "current"
-                                full -> "swap with " + occupants.joinToString(" or ") { it.player.name }
-                                else -> "open"
-                            }
-                            TextButton(
-                                onClick = {
-                                    target = LineupEditor.move(target, roster, spot.player.id, slot, counts, now)
-                                    lineup.onDismiss()
-                                    picking = null
-                                },
-                                enabled = slot != here,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(slotName(slot), Modifier.width(56.dp), fontWeight = FontWeight.SemiBold)
-                                Text(note, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                        }
-                    }
-                },
-                confirmButton = { TextButton(onClick = { picking = null }) { Text("Cancel") } },
-            )
-        }
-
-        if (confirming) {
-            AlertDialog(
-                onDismissRequest = { confirming = false },
-                title = { Text("Save to ESPN?") },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("These changes will be made to ${d.league.teamName(myTeam)} for week ${outlook.week}:")
-                        pending.forEach { m -> Text("• ${m.name}: ${slotName(m.from)} → ${slotName(m.to)}") }
-                    }
-                },
-                confirmButton = {
-                    Button(onClick = {
-                        confirming = false
-                        lineup.onSubmit(myTeam, outlook.week, pending)
-                    }) { Text("Save") }
-                },
-                dismissButton = { TextButton(onClick = { confirming = false }) { Text("Cancel") } },
-            )
-        }
-    }
-}
-
-/** What the My Team tab needs to send lineup changes. */
-class LineupActions(
-    val saveState: SaveState,
-    val onSubmit: (teamId: Int, scoringPeriod: Int, moves: List<LineupMove>) -> Unit,
-    /** Clears a saved/failed message once the user starts a new edit. */
-    val onDismiss: () -> Unit,
-)
-
-@Composable
-private fun ScoreColumn(name: String, actual: Double, projected: Double, align: Alignment.Horizontal, modifier: Modifier) {
-    Column(modifier, horizontalAlignment = align) {
-        Text(name, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        Text(fmt1(actual), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.SemiBold)
-        Text("Proj ${fmt1(projected)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-@Composable
-private fun RosterHeader() {
-    Row(Modifier.padding(vertical = 4.dp)) {
-        listOf("Player" to 1f, "Slot" to 0.4f, "Best" to 0.4f).forEach { (h, w) ->
-            Text(h, Modifier.weight(w), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-        }
-        listOf("Pts", "Proj").forEach { h ->
-            Text(h, Modifier.weight(0.4f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.End)
-        }
-    }
-}
-
-/** [spot] carries the edited slot; [originalSlot] is where ESPN has them, to flag pending moves. */
-@Composable
-private fun RosterRow(spot: RosterSpot, originalSlot: Int, bestSlot: Map<Long, String>, now: Long, onEdit: (RosterSpot) -> Unit) {
-    val p = spot.player
-    val slot = slotName(spot.slotId)
-    val best = bestSlot[p.id] ?: "BE"
-    val changed = (slot == "BE" || slot == "IR") != (best == "BE")
-    val locked = spot.isLocked(now)
-    val moved = spot.slotId != originalSlot
-    val gameState = when {
-        !p.gameStarted(now) -> null
-        p.remainingShare(now) > 0 -> "Live"
-        else -> "Final"
-    }
-    Row(
-        Modifier.fillMaxWidth().clickable(enabled = !locked) { onEdit(spot) }.padding(vertical = 4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Row {
-                Text((if (locked) "🔒 " else "") + p.name, style = MaterialTheme.typography.bodySmall,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                StatusChip(p)
-            }
-            Text(listOfNotNull(p.tag(), gameState).joinToString(" · "), style = MaterialTheme.typography.labelSmall,
-                color = if (gameState == "Live") Good else MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Text(if (moved) "$slot •" else slot, Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall,
-            color = if (moved) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
-            fontWeight = if (moved) FontWeight.Bold else FontWeight.Normal)
-        Text(best, Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall,
-            color = if (changed && !locked) Good else MaterialTheme.colorScheme.onSurface,
-            fontWeight = if (changed && !locked) FontWeight.SemiBold else FontWeight.Normal)
-        Text(if (p.gameStarted(now)) fmt1(p.pointsSoFar(now)) else "—", Modifier.weight(0.4f),
-            style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End)
-        Text(p.projected?.let { fmt1(it) } ?: "—", Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall,
-            textAlign = TextAlign.End, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
 }
 
 // --- Waivers -----------------------------------------------------------------------
@@ -433,7 +150,8 @@ internal fun LazyListScope.waiversTab(d: Dashboard, myTeam: Int?, onPick: (Int) 
         }
     }
     items(report.upgrades, key = { "up${it.add.id}" }) { idea ->
-        Column(Modifier.padding(vertical = 6.dp)) {
+        val open = LocalOpenPlayer.current
+        Column(Modifier.fillMaxWidth().clickable { open(idea.add) }.padding(vertical = 6.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Add ${idea.add.name}", Modifier.weight(1f, fill = false), fontWeight = FontWeight.SemiBold,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -473,7 +191,9 @@ private fun playerLine(p: Player): String = buildString {
 
 @Composable
 private fun FreeAgentLine(p: Player, right: String) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+    val open = LocalOpenPlayer.current
+    Row(Modifier.fillMaxWidth().clickable { open(p) }.padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+        PlayerPhoto(p, 36.dp, Modifier.padding(end = 10.dp))
         Column(Modifier.weight(1f)) {
             Row {
                 Text(p.name, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,

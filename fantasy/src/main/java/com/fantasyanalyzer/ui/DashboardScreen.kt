@@ -38,6 +38,9 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -55,7 +58,14 @@ import com.fantasyanalyzer.analysis.Analysis
 import com.fantasyanalyzer.analysis.RECENT_WEEKS
 import com.fantasyanalyzer.analysis.TeamGame
 import com.fantasyanalyzer.analysis.fmt1
+import com.fantasyanalyzer.data.Player
 import com.fantasyanalyzer.data.Settings
+import androidx.compose.foundation.background
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.repeatOnLifecycle
+import kotlinx.coroutines.delay
 import com.fantasyanalyzer.data.slotName
 import java.util.Locale
 
@@ -74,8 +84,28 @@ fun DashboardScreen(
     weekLineups: Map<Int, WeekLineups>,
     onRequestWeek: (Int) -> Unit,
     lineupActions: LineupActions,
+    liveMode: Boolean,
+    onLiveMode: (Boolean) -> Unit,
+    onLiveTick: () -> Unit,
 ) {
     val dashboard = (state as? UiState.Loaded)?.dashboard
+
+    // Live mode: refresh the current week every minute while games are on (every 5 otherwise),
+    // only while the app is on screen.
+    if (liveMode && dashboard != null) {
+        val lifecycle = LocalLifecycleOwner.current.lifecycle
+        val inProgress by rememberUpdatedState(dashboard.gamesInProgress)
+        val tick by rememberUpdatedState(onLiveTick)
+        LaunchedEffect(lifecycle) {
+            lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                while (true) {
+                    tick()
+                    delay(if (inProgress) 60_000L else 300_000L)
+                }
+            }
+        }
+    }
+
     Scaffold(
         topBar = {
             TopAppBar(
@@ -83,15 +113,27 @@ fun DashboardScreen(
                     Column {
                         Text(dashboard?.league?.name ?: "Fantasy Analyzer", maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (dashboard != null) {
-                            val lg = dashboard.league
+                            val loadedState = state as UiState.Loaded
                             Text(
-                                "${lg.year} · ${lg.teams.size} teams · ${lg.completedWeeks().size} weeks played",
+                                when {
+                                    loadedState.refreshing -> "Updating…"
+                                    else -> freshness(dashboard.data.fetchedAt)
+                                },
                                 style = MaterialTheme.typography.labelMedium,
                             )
                         }
                     }
                 },
                 actions = {
+                    if (dashboard != null && !settings.useDemo) {
+                        TextButton(onClick = { onLiveMode(!liveMode) }) {
+                            Text(
+                                if (liveMode) "● LIVE" else "LIVE",
+                                fontWeight = FontWeight.Bold,
+                                color = if (liveMode) Bad else MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
                     IconButton(onClick = onRefresh) { Icon(Icons.Default.Refresh, "Refresh") }
                     IconButton(onClick = onOpenSettings) { Icon(Icons.Default.Settings, "League setup") }
                 },
@@ -122,10 +164,19 @@ fun DashboardScreen(
                     Button(onClick = onOpenSettings) { Text("Connect my league") }
                     OutlinedButton(onClick = onTryDemo, Modifier.padding(top = 8.dp)) { Text("Try a demo league") }
                 }
-                is UiState.Loaded -> if (state.dashboard.standings.isEmpty()) {
-                    Centered { Text("No completed games yet this season.") }
-                } else {
-                    Tabs(state.dashboard, state.dashboard.myTeamId(settings), onSetMyTeam, weekLineups, onRequestWeek, lineupActions)
+                is UiState.Loaded -> Column {
+                    state.refreshError?.let {
+                        Text(
+                            "Showing saved data: $it",
+                            Modifier.fillMaxWidth().background(Bad.copy(alpha = 0.12f)).padding(horizontal = 16.dp, vertical = 6.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (state.dashboard.standings.isEmpty()) {
+                        Centered { Text("No completed games yet this season.") }
+                    } else {
+                        Tabs(state.dashboard, state.dashboard.myTeamId(settings), onSetMyTeam, weekLineups, onRequestWeek, lineupActions)
+                    }
                 }
             }
         }
@@ -151,27 +202,43 @@ private fun Tabs(
     lineupActions: LineupActions,
 ) {
     var tab by rememberSaveable { mutableIntStateOf(0) }
-    Column {
-        ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
-            TABS.forEachIndexed { i, title ->
-                Tab(selected = tab == i, onClick = { tab = i }, text = { Text(title) })
+    var sheetPlayer by remember { mutableStateOf<Player?>(null) }
+    sheetPlayer?.let { PlayerSheet(it, d) { sheetPlayer = null } }
+    CompositionLocalProvider(LocalOpenPlayer provides { p: Player -> sheetPlayer = p }) {
+        Column {
+            ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
+                TABS.forEachIndexed { i, title ->
+                    Tab(selected = tab == i, onClick = { tab = i }, text = { Text(title) })
+                }
+            }
+            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
+                when (tab) {
+                    0 -> standingsTab(d)
+                    1 -> item(key = "matchup") { MatchupTab(d, myTeam, weekLineups, onRequestWeek) }
+                    2 -> item(key = "myteam") { MyTeamScreen(d, myTeam, onSetMyTeam, lineupActions, weekLineups, onRequestWeek) }
+                    3 -> waiversTab(d, myTeam, onSetMyTeam)
+                    4 -> playoffsTab(d, myTeam)
+                    5 -> powerTab(d)
+                    6 -> luckTab(d)
+                    7 -> lineupsTab(d)
+                    8 -> scoringTab(d)
+                    9 -> headToHeadTab(d)
+                    else -> recordsTab(d)
+                }
             }
         }
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp)) {
-            when (tab) {
-                0 -> standingsTab(d)
-                1 -> item(key = "matchup") { MatchupTab(d, myTeam, weekLineups, onRequestWeek) }
-                2 -> myTeamTab(d, myTeam, onSetMyTeam, lineupActions)
-                3 -> waiversTab(d, myTeam, onSetMyTeam)
-                4 -> playoffsTab(d, myTeam)
-                5 -> powerTab(d)
-                6 -> luckTab(d)
-                7 -> lineupsTab(d)
-                8 -> scoringTab(d)
-                9 -> headToHeadTab(d)
-                else -> recordsTab(d)
-            }
-        }
+    }
+}
+
+/** "Updated just now" / "Updated 12 min ago" / "Updated 3 h ago". */
+private fun freshness(fetchedAt: Long): String {
+    if (fetchedAt <= 0) return "Saved data"
+    val mins = (System.currentTimeMillis() - fetchedAt) / 60_000
+    return when {
+        mins < 1 -> "Updated just now"
+        mins < 60 -> "Updated $mins min ago"
+        mins < 48 * 60 -> "Updated ${mins / 60} h ago"
+        else -> "Updated ${mins / (24 * 60)} days ago"
     }
 }
 

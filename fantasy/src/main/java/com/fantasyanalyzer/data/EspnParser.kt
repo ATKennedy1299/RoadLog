@@ -18,7 +18,8 @@ object EspnParser {
                     "${m.optString("firstName")} ${m.optString("lastName")}".trim()
                 }
             } ?: ""
-            id to Team(id, teamName(t), t.optString("abbrev"), owner, ownerIds, t.optInt("divisionId", 0))
+            val logo = t.optString("logo").takeIf { it.startsWith("http") }
+            id to Team(id, teamName(t), t.optString("abbrev"), owner, ownerIds, t.optInt("divisionId", 0), logo)
         }
 
         val sched = settings.optJSONObject("scheduleSettings") ?: JSONObject()
@@ -133,7 +134,12 @@ object EspnParser {
      * Every team's roster for [week] with ESPN's projections, from a box score
      * response requested for that week.
      */
-    fun parseCurrentRosters(raw: JSONObject, week: Int, proTeams: Map<Int, ProTeam>): Map<Int, List<RosterSpot>> {
+    fun parseCurrentRosters(
+        raw: JSONObject,
+        week: Int,
+        proTeams: Map<Int, ProTeam>,
+        ratings: PositionRatings = emptyMap(),
+    ): Map<Int, List<RosterSpot>> {
         val rosters = mutableMapOf<Int, List<RosterSpot>>()
         for (m in raw.optJSONArray("schedule").objects()) {
             for (side in listOf("home", "away")) {
@@ -144,7 +150,7 @@ object EspnParser {
                 val spots = roster.optJSONArray("entries").objects().map { e ->
                     val pool = e.optJSONObject("playerPoolEntry") ?: JSONObject()
                     RosterSpot(
-                        player = parsePlayer(pool, week, proTeams),
+                        player = parsePlayer(pool, week, proTeams, ratings),
                         slotId = e.optInt("lineupSlotId", BENCH),
                         locked = pool.optBoolean("lineupLocked", false) || e.optBoolean("lineupLocked", false),
                     )
@@ -156,19 +162,24 @@ object EspnParser {
     }
 
     /** Free agents and waiver-wire players from a `kona_player_info` response. */
-    fun parseFreeAgents(raw: JSONObject, week: Int, proTeams: Map<Int, ProTeam>): List<Player> =
+    fun parseFreeAgents(
+        raw: JSONObject,
+        week: Int,
+        proTeams: Map<Int, ProTeam>,
+        ratings: PositionRatings = emptyMap(),
+    ): List<Player> =
         raw.optJSONArray("players").objects()
             .filter { it.optString("status", "FREEAGENT") in setOf("FREEAGENT", "WAIVERS") }
-            .map { parsePlayer(it, week, proTeams).copy(onWaivers = it.optString("status") == "WAIVERS") }
+            .map { parsePlayer(it, week, proTeams, ratings).copy(onWaivers = it.optString("status") == "WAIVERS") }
 
     /** [pool] is a `playerPoolEntry` (or free agent list item): `{id, player: {...}, ...}`. */
-    fun parsePlayer(pool: JSONObject, week: Int, proTeams: Map<Int, ProTeam>): Player {
+    fun parsePlayer(pool: JSONObject, week: Int, proTeams: Map<Int, ProTeam>, ratings: PositionRatings = emptyMap()): Player {
         val player = pool.optJSONObject("player") ?: JSONObject()
         val stats = player.optJSONArray("stats").objects()
         val projected = stats.firstOrNull { it.optInt("scoringPeriodId") == week && it.optInt("statSourceId", -1) == 1 }
             ?.optDouble("appliedTotal", 0.0)?.orZero()
-        val actual = stats.firstOrNull { it.optInt("scoringPeriodId") == week && it.optInt("statSourceId", -1) == 0 }
-            ?.optDouble("appliedTotal", 0.0)?.orZero()
+        val actualStat = stats.firstOrNull { it.optInt("scoringPeriodId") == week && it.optInt("statSourceId", -1) == 0 }
+        val actual = actualStat?.optDouble("appliedTotal", 0.0)?.orZero()
         val recent = stats
             .filter { it.optInt("statSourceId", -1) == 0 && it.optInt("scoringPeriodId") in (week - 3) until week }
             .sortedBy { it.optInt("scoringPeriodId") }
@@ -178,13 +189,15 @@ object EspnParser {
         val pro = proTeams[proTeamId] ?: ProTeam(PRO_TEAMS[proTeamId] ?: "FA", 0)
         val elig = player.optJSONArray("eligibleSlots")
         val ownership = player.optJSONObject("ownership")
+        val positionId = player.optInt("defaultPositionId", -1)
+        val game = pro.games[week]
         val status = player.optString("injuryStatus").takeIf { it.isNotBlank() && it != "null" }
             ?: pool.optString("injuryStatus").takeIf { it.isNotBlank() && it != "null" }
             ?: if (player.optBoolean("injured", false)) "QUESTIONABLE" else "ACTIVE"
         return Player(
             id = player.optLong("id", pool.optLong("id", 0)),
             name = player.optString("fullName", "Unknown"),
-            position = POSITIONS[player.optInt("defaultPositionId", -1)] ?: "?",
+            position = POSITIONS[positionId] ?: "?",
             proTeam = pro.abbrev,
             eligibleSlots = elig?.let { a -> (0 until a.length()).map { a.getInt(it) } } ?: emptyList(),
             injuryStatus = status.uppercase(),
@@ -194,12 +207,100 @@ object EspnParser {
             percentOwned = ownership?.optDouble("percentOwned", 0.0)?.orZero() ?: 0.0,
             percentChange = ownership?.optDouble("percentChange", 0.0)?.orZero() ?: 0.0,
             actual = actual,
-            gameStart = pro.games[week]?.kickoff,
-            opponent = pro.games[week]?.let { g ->
+            gameStart = game?.kickoff,
+            percentStarted = ownership?.optDouble("percentStarted", 0.0)?.orZero() ?: 0.0,
+            opponentRank = game?.let { ratings[positionId]?.get(it.opponentId) },
+            statLine = actualStat?.optJSONObject("stats")?.let { statLine(it, POSITIONS[positionId]) },
+            opponent = game?.let { g ->
                 val opp = proTeams[g.opponentId]?.abbrev ?: PRO_TEAMS[g.opponentId] ?: return@let null
                 if (g.home) opp else "@$opp"
             },
         )
+    }
+
+    /**
+     * ESPN's box score line from raw stat ids, e.g. "18/27, 245 YDS, 2 TD" for a
+     * QB or "12 REC, 134 YDS" for a receiver. Null when there's nothing to show.
+     */
+    fun statLine(s: JSONObject, position: String?): String? {
+        fun v(id: Int) = s.optDouble(id.toString(), 0.0).let { if (it.isNaN()) 0.0 else it }.toInt()
+        val parts = mutableListOf<String>()
+        if (position == "QB" || v(0) > 0) {
+            if (v(0) > 0) parts += "${v(1)}/${v(0)}"
+            if (v(3) != 0) parts += "${v(3)} YDS"
+            if (v(4) > 0) parts += "${v(4)} TD"
+            if (v(20) > 0) parts += "${v(20)} INT"
+            if (v(24) != 0) parts += "${v(24)} RUSH YDS"
+        } else {
+            // Lead with what the player mostly does, then touchdowns, then the rest.
+            val rusher = v(24) > v(42)
+            val rushing = listOfNotNull(
+                "${v(23)} CAR".takeIf { v(23) > 0 },
+                "${v(24)} ${if (rusher) "YDS" else "RUSH YDS"}".takeIf { v(24) != 0 },
+            )
+            val receiving = listOfNotNull(
+                "${v(53)} REC".takeIf { v(53) > 0 },
+                "${v(42)} ${if (rusher) "REC YDS" else "YDS"}".takeIf { v(42) != 0 },
+            )
+            val td = (v(25) + v(43)).takeIf { it > 0 }?.let { "$it TD" }
+            parts += if (rusher) rushing + listOfNotNull(td) + receiving else receiving + listOfNotNull(td) + rushing
+        }
+        return parts.take(4).joinToString(", ").ifBlank { null }
+    }
+
+    /** `mPositionalRatings`: position id -> opponent pro team id -> rank vs that position. */
+    fun parseRatings(raw: JSONObject): PositionRatings {
+        val byPos = raw.optJSONObject("positionAgainstOpponent")?.optJSONObject("positionalRatings") ?: return emptyMap()
+        val out = mutableMapOf<Int, Map<Int, Int>>()
+        for (pos in byPos.keys()) {
+            val byOpp = byPos.optJSONObject(pos)?.optJSONObject("ratingsByOpponent") ?: continue
+            val ranks = mutableMapOf<Int, Int>()
+            for (opp in byOpp.keys()) {
+                val rank = byOpp.optJSONObject(opp)?.optInt("rank", 0) ?: 0
+                if (rank > 0) opp.toIntOrNull()?.let { ranks[it] = rank }
+            }
+            pos.toIntOrNull()?.let { out[it] = ranks }
+        }
+        return out
+    }
+
+    /** ESPN's public NFL scoreboard: each team's game this week, by abbreviation. */
+    fun parseScoreboard(raw: JSONObject): Map<String, NflGame> {
+        val out = mutableMapOf<String, NflGame>()
+        for (event in raw.optJSONArray("events").objects()) {
+            val comp = event.optJSONArray("competitions").objects().firstOrNull() ?: continue
+            val teams = comp.optJSONArray("competitors").objects()
+            val home = teams.firstOrNull { it.optString("homeAway") == "home" } ?: continue
+            val away = teams.firstOrNull { it.optString("homeAway") == "away" } ?: continue
+            val status = comp.optJSONObject("status") ?: event.optJSONObject("status") ?: continue
+            val type = status.optJSONObject("type") ?: JSONObject()
+            val state = type.optString("state", NflGame.PRE)
+            val period = status.optInt("period", 0)
+            val clock = status.optString("displayClock", "15:00")
+            val remaining = when (state) {
+                NflGame.PRE -> 1.0
+                NflGame.POST -> 0.0
+                else -> {
+                    val secs = clock.split(":").let { p -> (p.getOrNull(0)?.toIntOrNull() ?: 15) * 60 + (p.getOrNull(1)?.toIntOrNull() ?: 0) }
+                    val quartersDone = (period - 1).coerceAtLeast(0) + (900 - secs.coerceIn(0, 900)) / 900.0
+                    (1 - quartersDone / 4).coerceIn(0.0, 1.0)
+                }
+            }
+            val ha = home.optJSONObject("team")?.optString("abbreviation").orEmpty().uppercase()
+            val aa = away.optJSONObject("team")?.optString("abbreviation").orEmpty().uppercase()
+            val game = NflGame(
+                state = state,
+                detail = type.optString("shortDetail").ifBlank { type.optString("detail") },
+                homeAbbrev = ha,
+                awayAbbrev = aa,
+                homeScore = home.optString("score").toIntOrNull() ?: 0,
+                awayScore = away.optString("score").toIntOrNull() ?: 0,
+                remainingShare = remaining,
+            )
+            if (ha.isNotBlank()) out[ha] = game
+            if (aa.isNotBlank()) out[aa] = game
+        }
+        return out
     }
 
     /** ESPN pro team ids, used when the pro schedule couldn't be loaded. */

@@ -3,6 +3,7 @@
 package com.fantasyanalyzer.ui
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -36,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -45,14 +47,9 @@ import com.fantasyanalyzer.analysis.Matchups
 import com.fantasyanalyzer.analysis.SlotRow
 import com.fantasyanalyzer.analysis.fmt1
 import com.fantasyanalyzer.data.Matchup
+import com.fantasyanalyzer.data.NflGame
 import com.fantasyanalyzer.data.Player
 import com.fantasyanalyzer.data.RosterSpot
-import java.time.Instant
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.util.Locale
-
-private val KICKOFF = DateTimeFormatter.ofPattern("EEE h:mm a", Locale.US)
 
 @Composable
 internal fun MatchupTab(
@@ -211,6 +208,7 @@ private fun MatchupHeader(d: Dashboard, m: Matchup, home: MatchupSide, away: Mat
 private fun HeaderSide(d: Dashboard, side: MatchupSide, record: String?, align: Alignment.Horizontal, modifier: Modifier) {
     val team = d.league.teams[side.teamId]
     Column(modifier, horizontalAlignment = align) {
+        TeamLogo(team?.logo, team?.abbrev ?: "", 44.dp, Modifier.padding(bottom = 4.dp))
         Text(fmt1(side.actual), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
         side.projected?.let {
             Text("Proj ${fmt1(it)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -243,15 +241,26 @@ private fun PlayerCell(spot: RosterSpot?, now: Long, mirrored: Boolean, modifier
         return
     }
     val p = spot.player
+    val open = LocalOpenPlayer.current
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val info: @Composable (Modifier) -> Unit = { m ->
         Column(m, horizontalAlignment = if (mirrored) Alignment.End else Alignment.Start) {
             Row(verticalAlignment = Alignment.CenterVertically) {
+                if (!mirrored) PlayerPhoto(p, 28.dp, Modifier.padding(end = 6.dp))
                 Text(shortName(p.name), style = MaterialTheme.typography.bodyMedium, maxLines = 1,
                     overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
                 StatusChip(p)
+                if (mirrored) PlayerPhoto(p, 28.dp, Modifier.padding(start = 6.dp))
             }
-            Text(gameLine(p, now), style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (p.gameStarted(now) && p.remainingShare(now) > 0) Good else MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                buildAnnotatedString { append("${p.proTeam} "); append(gameLine(p, now, muted)) },
+                style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                color = if (p.game?.state == NflGame.IN) Good else muted,
+                textAlign = if (mirrored) TextAlign.End else TextAlign.Start,
+            )
+            p.statLine?.let {
+                Text(it, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, color = muted)
+            }
         }
     }
     val points: @Composable () -> Unit = {
@@ -262,7 +271,7 @@ private fun PlayerCell(spot: RosterSpot?, now: Long, mirrored: Boolean, modifier
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier.clickable { open(p) }, verticalAlignment = Alignment.CenterVertically) {
         if (mirrored) {
             points()
             info(Modifier.weight(1f).padding(start = 6.dp))
@@ -271,23 +280,4 @@ private fun PlayerCell(spot: RosterSpot?, now: Long, mirrored: Boolean, modifier
             points()
         }
     }
-}
-
-/** "Jaxon Smith-Njigba" -> "J. Smith-Njigba"; D/ST names stay whole. */
-private fun shortName(name: String): String {
-    if (name.contains("D/ST")) return name
-    val parts = name.split(" ")
-    return if (parts.size >= 2) "${parts[0].first()}. ${parts.drop(1).joinToString(" ")}" else name
-}
-
-private fun gameLine(p: Player, now: Long): String {
-    if (p.onBye) return "${p.proTeam} · BYE"
-    val opp = p.opponent?.let { " $it" } ?: ""
-    val state = when {
-        p.gameStart == null -> ""
-        !p.gameStarted(now) -> " " + KICKOFF.format(Instant.ofEpochMilli(p.gameStart).atZone(ZoneId.systemDefault()))
-        p.remainingShare(now) > 0 -> " · Live"
-        else -> " · Final"
-    }
-    return "${p.proTeam}$opp$state".trim()
 }

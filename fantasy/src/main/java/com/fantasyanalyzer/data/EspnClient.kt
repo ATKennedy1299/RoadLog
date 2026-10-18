@@ -31,21 +31,66 @@ class EspnClient(
     private val baseUrl: String = BASE_URL,
     /** ESPN takes changes on a separate host from reads. */
     private val writeUrl: String = WRITE_URL,
+    /** Saved responses; see [cached]. */
+    private val cache: JsonCache? = null,
+    /** Read only from [cache], never the network (for an instant start). */
+    private val offline: Boolean = false,
+    private val scoreboardUrl: String = SCOREBOARD_URL,
 ) {
     private val candidates: List<String?> = cookieHeaders.distinct().ifEmpty { listOf(null) }
     private var working: String? = null
 
-    /** Settings, teams, members, and the full season schedule with scores. */
-    fun league(): JSONObject = get(listOf("view" to "mSettings", "view" to "mTeam", "view" to "mMatchup", "view" to "mStatus"))
+    /**
+     * Gets [key] from the network, saving it to the cache. A cached copy younger
+     * than [reuseFor] is used instead of the network (so data that can't change,
+     * like a finished week, is only ever downloaded once). Offline, only the cache
+     * is used, at any age.
+     */
+    private fun cached(key: String, reuseFor: Long = 0, net: () -> JSONObject): JSONObject {
+        val c = cache
+        if (offline) {
+            return c?.read(key)?.let { parseObject(it) } ?: throw EspnException("Nothing saved for $key yet.")
+        }
+        if (c != null && reuseFor > 0) c.read(key, reuseFor)?.let { parseObject(it) }?.let { return it }
+        val json = net()
+        c?.write(key, json.toString())
+        return json
+    }
 
-    /** Every team's full roster (starters and bench) with points for one week. */
-    fun boxScores(matchupPeriod: Int, scoringPeriod: Int): JSONObject = get(
-        listOf("view" to "mMatchupScore", "view" to "mScoreboard", "scoringPeriodId" to scoringPeriod.toString()),
-        filter = """{"schedule":{"filterMatchupPeriodIds":{"value":[$matchupPeriod]}}}""",
-    )
+    /** Settings, teams, members, and the full season schedule with scores. */
+    fun league(): JSONObject = cached("league") {
+        get(listOf("view" to "mSettings", "view" to "mTeam", "view" to "mMatchup", "view" to "mStatus"))
+    }
+
+    /**
+     * Every team's full roster (starters and bench) with points for one week.
+     * [final] weeks are over and can't change, so they're kept for good.
+     */
+    fun boxScores(matchupPeriod: Int, scoringPeriod: Int, final: Boolean = false): JSONObject =
+        // Final weeks get their own key, so a copy saved while the week was still on never passes for final.
+        cached(if (final) "final-$matchupPeriod-$scoringPeriod" else "box-$matchupPeriod-$scoringPeriod",
+            reuseFor = if (final) Long.MAX_VALUE else 0) {
+            get(
+                listOf("view" to "mMatchupScore", "view" to "mScoreboard", "scoringPeriodId" to scoringPeriod.toString()),
+                filter = """{"schedule":{"filterMatchupPeriodIds":{"value":[$matchupPeriod]}}}""",
+            )
+        }
+
+    /** How each NFL defense ranks against each position, as of [week]. */
+    fun positionalRatings(week: Int): JSONObject = cached("ratings-$week", reuseFor = SIX_HOURS) {
+        get(listOf("view" to "mPositionalRatings", "scoringPeriodId" to week.toString()))
+    }
+
+    /** ESPN's public NFL scoreboard for an NFL week: scores, quarter and clock. */
+    fun nflScoreboard(week: Int): JSONObject = cached("scoreboard-$week") {
+        val resp = request("$scoreboardUrl?seasontype=2&week=$week&dates=$year", null, emptyMap(), userAgent)
+        if (resp.code in 200..299) parseObject(resp.body) ?: JSONObject() else throw EspnException("Scoreboard: HTTP ${resp.code}")
+    }
 
     /** Free agents and waiver players who can fill [slotId], most-owned first. */
-    fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = get(
+    fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = cached("fa-$week-$slotId") { freeAgentsNet(week, slotId, limit) }
+
+    private fun freeAgentsNet(week: Int, slotId: Int, limit: Int): JSONObject = get(
         listOf("view" to "kona_player_info", "scoringPeriodId" to week.toString()),
         filter = """{"players":{"filterStatus":{"value":["FREEAGENT","WAIVERS"]},""" +
             """"filterSlotIds":{"value":[$slotId]},"limit":$limit,"offset":0,""" +
@@ -85,34 +130,58 @@ class EspnClient(
         )
     }
 
-    /** NFL teams with their bye weeks. Public; no cookies needed. */
-    fun proTeams(): JSONObject {
+    /** NFL teams with their bye weeks and kickoffs. Public; refreshed daily (games get flexed). */
+    fun proTeams(): JSONObject = cached("pro", reuseFor = ONE_DAY) {
         val resp = request("$baseUrl/seasons/$year?view=proTeamSchedules_wl", null, emptyMap(), userAgent)
-        return if (resp.code in 200..299) parseObject(resp.body) ?: JSONObject() else JSONObject()
+        if (resp.code in 200..299) parseObject(resp.body) ?: JSONObject() else throw EspnException("Pro schedule: HTTP ${resp.code}")
     }
+
+    /** Best effort: optional data that the rest of the app can do without. */
+    private fun <T> optional(fallback: T, block: () -> T): T = try { block() } catch (e: EspnException) { fallback }
+
+    /**
+     * The current week's rosters with projections and live games, the bits that
+     * change minute to minute during games. Used for live refreshes.
+     */
+    fun currentWeek(league: League, pro: Map<Int, ProTeam>, ratings: PositionRatings): Pair<Map<Int, List<RosterSpot>>, Map<String, NflGame>> {
+        val week = league.currentScoringPeriod
+        val matchupPeriod = league.matchupPeriods.entries.firstOrNull { week in it.value }?.key ?: league.currentWeek
+        val scoreboard = optional(emptyMap()) { EspnParser.parseScoreboard(nflScoreboard(week)) }
+        val rosters = EspnParser.parseCurrentRosters(cached("current-$week") { boxScoresNet(matchupPeriod, week) }, week, pro, ratings)
+        return rosters.withGames(scoreboard) to scoreboard
+    }
+
+    private fun boxScoresNet(matchupPeriod: Int, scoringPeriod: Int): JSONObject = get(
+        listOf("view" to "mMatchupScore", "view" to "mScoreboard", "scoringPeriodId" to scoringPeriod.toString()),
+        filter = """{"schedule":{"filterMatchupPeriodIds":{"value":[$matchupPeriod]}}}""",
+    )
 
     /**
      * The coming week: rosters with projections for every team and the free
      * agent pool. Best effort: returns null rather than failing the whole load.
      */
-    fun outlook(league: League, pro: Map<Int, ProTeam>, onProgress: (String) -> Unit = {}): WeekOutlook? {
+    fun outlook(
+        league: League,
+        pro: Map<Int, ProTeam>,
+        ratings: PositionRatings = emptyMap(),
+        onProgress: (String) -> Unit = {},
+    ): Pair<WeekOutlook, Map<String, NflGame>>? {
         if (league.seasonOver) return null
         val week = league.currentScoringPeriod
         return try {
             onProgress("Loading projections for week $week…")
-            val matchupPeriod = league.matchupPeriods.entries.firstOrNull { week in it.value }?.key ?: league.currentWeek
-            val rosters = EspnParser.parseCurrentRosters(boxScores(matchupPeriod, week), week, pro)
+            val (rosters, scoreboard) = currentWeek(league, pro, ratings)
             onProgress("Loading free agents…")
             val positionSlots = listOf(0, 2, 4, 6, 16, 17) // QB, RB, WR, TE, D/ST, K
                 .filter { slot -> league.lineupSlotCounts.isEmpty() || positionNeeded(slot, league.lineupSlotCounts) }
             val freeAgents = positionSlots.flatMap { slot ->
                 try {
-                    EspnParser.parseFreeAgents(freeAgents(week, slot), week, pro)
+                    EspnParser.parseFreeAgents(freeAgents(week, slot), week, pro, ratings)
                 } catch (e: EspnException) {
                     emptyList()
                 }
-            }.distinctBy { it.id }
-            WeekOutlook(week, rosters, freeAgents)
+            }.distinctBy { it.id }.map { p -> scoreboard[p.proTeam]?.let { p.copy(game = it) } ?: p }
+            WeekOutlook(week, rosters, freeAgents) to scoreboard
         } catch (e: EspnException) {
             null
         }
@@ -134,19 +203,34 @@ class EspnClient(
             val periods = league.matchupPeriods[week] ?: listOf(week)
             if (periods.size != 1) continue // multi-week playoff matchups: skip lineup analysis
             onProgress("Loading lineups: week $week (${i + 1}/${weeks.size})")
-            box[week] = EspnParser.parseBoxScores(boxScores(week, periods[0]), periods[0])
+            // Weeks before the current one are final; they come from the cache after the first time.
+            box[week] = EspnParser.parseBoxScores(boxScores(week, periods[0], final = week < league.currentWeek), periods[0])
         }
-        val pro = try { EspnParser.parseProTeams(proTeams()) } catch (e: EspnException) { emptyMap() }
-        return LeagueData(league, box, outlook(league, pro, onProgress), pro)
+        val pro = optional(emptyMap()) { EspnParser.parseProTeams(proTeams()) }
+        val ratings = optional(emptyMap()) { EspnParser.parseRatings(positionalRatings(league.currentScoringPeriod)) }
+        val outlook = outlook(league, pro, ratings, onProgress)
+        return LeagueData(
+            league, box, outlook?.first, pro, ratings, outlook?.second.orEmpty(),
+            fetchedAt = if (offline) cache?.savedAt("league") ?: 0L else System.currentTimeMillis(),
+        )
     }
 
     /**
      * Every team's lineup for matchup period [week] with projections and
      * points, as ESPN shows it on the matchup page (past, current or future).
      */
-    fun weekRosters(league: League, week: Int, pro: Map<Int, ProTeam>): Map<Int, List<RosterSpot>> {
+    fun weekRosters(
+        league: League,
+        week: Int,
+        pro: Map<Int, ProTeam>,
+        ratings: PositionRatings = emptyMap(),
+        fresh: Boolean = false,
+    ): Map<Int, List<RosterSpot>> {
         val scoringPeriod = league.matchupPeriods[week]?.firstOrNull() ?: week
-        return EspnParser.parseCurrentRosters(boxScores(week, scoringPeriod), scoringPeriod, pro)
+        val final = !fresh && week < league.currentWeek
+        val json = if (fresh) cached("box-$week-$scoringPeriod") { boxScoresNet(week, scoringPeriod) }
+        else boxScores(week, scoringPeriod, final)
+        return EspnParser.parseCurrentRosters(json, scoringPeriod, pro, ratings)
     }
 
     private fun get(params: List<Pair<String, String>>, filter: String? = null): JSONObject {
@@ -197,6 +281,9 @@ class EspnClient(
     companion object {
         private const val BASE_URL = "https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl"
         private const val WRITE_URL = "https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl"
+        private const val SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
+        private const val SIX_HOURS = 6L * 60 * 60 * 1000
+        private const val ONE_DAY = 24L * 60 * 60 * 1000
 
         /** The host the league API lives on, for reading the in-app browser's cookies for it. */
         const val API_ORIGIN = "https://lm-api-reads.fantasy.espn.com"
