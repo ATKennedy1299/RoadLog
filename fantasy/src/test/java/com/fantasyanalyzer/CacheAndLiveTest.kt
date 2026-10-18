@@ -190,6 +190,30 @@ class CacheAndLiveTest {
     }
 
     @Test
+    fun ignoresOtherSeasonsStats() {
+        // ESPN sends last season's week 6 alongside this season's; only 2026 counts.
+        val pool = JSONObject(
+            """{"id": 8, "player": {"id": 8, "fullName": "A Back", "defaultPositionId": 2, "proTeamId": 9, "stats": [
+              {"seasonId": 2025, "scoringPeriodId": 6, "statSplitTypeId": 1, "statSourceId": 0, "appliedTotal": 33.0},
+              {"seasonId": 2025, "scoringPeriodId": 6, "statSplitTypeId": 1, "statSourceId": 1, "appliedTotal": 0.0},
+              {"seasonId": 2025, "scoringPeriodId": 5, "statSplitTypeId": 1, "statSourceId": 0, "appliedTotal": 25.0},
+              {"seasonId": 2026, "scoringPeriodId": 0, "statSplitTypeId": 0, "statSourceId": 0, "appliedTotal": 61.0},
+              {"seasonId": 2026, "scoringPeriodId": 5, "statSplitTypeId": 1, "statSourceId": 0, "appliedTotal": 9.5},
+              {"seasonId": 2026, "scoringPeriodId": 6, "statSplitTypeId": 1, "statSourceId": 1, "appliedTotal": 11.2}]}}"""
+        )
+        for (season in listOf(2026, null)) { // explicit, or inferred as the latest season present
+            val p = EspnParser.parsePlayer(pool, 6, emptyMap(), season = season)
+            assertNull(p.actual)
+            assertEquals(11.2, p.projected!!, 1e-9)
+            assertEquals(listOf(9.5), p.recentPoints)
+        }
+        val weeks = EspnParser.parsePlayerWeeks(JSONObject("""{"players": [$pool]}"""), 8, 2026)
+        assertEquals(setOf(5, 6), weeks.keys)
+        assertEquals(9.5, weeks.getValue(5).actual!!, 1e-9)
+        assertNull(weeks.getValue(6).actual)
+    }
+
+    @Test
     fun parsesPlayerCardWeeks() {
         val raw = JSONObject(
             """

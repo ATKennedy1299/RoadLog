@@ -240,7 +240,7 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
         val net = client(s)
         viewModelScope.launch {
             val weeks = try {
-                withContext(Dispatchers.IO) { EspnParser.parsePlayerWeeks(net.playerCard(playerId), playerId) }
+                withContext(Dispatchers.IO) { EspnParser.parsePlayerWeeks(net.playerCard(playerId), playerId, s.year) }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {

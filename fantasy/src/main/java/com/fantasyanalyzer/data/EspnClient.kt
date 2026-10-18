@@ -88,7 +88,7 @@ class EspnClient(
     }
 
     /** One player's whole season, week by week (ESPN's player card data). */
-    fun playerCard(playerId: Long): JSONObject = cached("card-$playerId", reuseFor = THIRTY_MINUTES) {
+    fun playerCard(playerId: Long): JSONObject = cached("card2-$playerId", reuseFor = THIRTY_MINUTES) {
         get(
             listOf("view" to "kona_playercard"),
             filter = """{"players":{"filterIds":{"value":[$playerId]},""" +
@@ -97,16 +97,22 @@ class EspnClient(
     }
 
     /** Free agents and waiver players who can fill [slotId], most-owned first. */
-    fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = cached("fa-$week-$slotId") { freeAgentsNet(week, slotId, limit) }
+    fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = cached("fa2-$week-$slotId") { freeAgentsNet(week, slotId, limit) }
 
-    private fun freeAgentsNet(week: Int, slotId: Int, limit: Int): JSONObject = get(
-        listOf("view" to "kona_player_info", "scoringPeriodId" to week.toString()),
-        filter = """{"players":{"filterStatus":{"value":["FREEAGENT","WAIVERS"]},""" +
-            """"filterSlotIds":{"value":[$slotId]},"limit":$limit,"offset":0,""" +
-            """"sortPercOwned":{"sortPriority":1,"sortAsc":false},""" +
-            """"sortDraftRanks":{"sortPriority":100,"sortAsc":true,"value":"STANDARD"},""" +
-            """"filterStatsForTopScoringPeriodIds":{"value":3,"additionalValue":["00$year","10$year","11$year$week"]}}}""",
-    )
+    private fun freeAgentsNet(week: Int, slotId: Int, limit: Int): JSONObject {
+        // ESPN stat set ids are source + split + season (+ week): this week's actual
+        // ("01") and projection ("11"), the last three weeks' actuals, and season totals.
+        val faStatIds = (listOf("00$year", "10$year", "11$year$week") +
+            (week - 3..week).filter { it > 0 }.map { "01$year$it" }).joinToString(",") { "\"$it\"" }
+        return get(
+            listOf("view" to "kona_player_info", "scoringPeriodId" to week.toString()),
+            filter = """{"players":{"filterStatus":{"value":["FREEAGENT","WAIVERS"]},""" +
+                """"filterSlotIds":{"value":[$slotId]},"limit":$limit,"offset":0,""" +
+                """"sortPercOwned":{"sortPriority":1,"sortAsc":false},""" +
+                """"sortDraftRanks":{"sortPriority":100,"sortAsc":true,"value":"STANDARD"},""" +
+                """"filterStatsForTopScoringPeriodIds":{"value":3,"additionalValue":[$faStatIds]}}}""",
+        )
+    }
 
     /**
      * Sends lineup changes to ESPN, the way ESPN's site does: one transaction
@@ -203,7 +209,7 @@ class EspnClient(
                 .filter { slot -> league.lineupSlotCounts.isEmpty() || positionNeeded(slot, league.lineupSlotCounts) }
             val freeAgents = positionSlots.flatMap { slot ->
                 try {
-                    EspnParser.parseFreeAgents(freeAgents(week, slot), week, pro, ratings)
+                    EspnParser.parseFreeAgents(freeAgents(week, slot), week, pro, ratings, year)
                 } catch (e: EspnException) {
                     emptyList()
                 }

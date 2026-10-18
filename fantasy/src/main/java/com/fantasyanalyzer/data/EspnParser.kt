@@ -86,6 +86,7 @@ object EspnParser {
 
     /** Returns team id -> roster for one week. */
     fun parseBoxScores(raw: JSONObject, scoringPeriod: Int): Map<Int, List<RosterEntry>> {
+        val season = raw.optInt("seasonId", 0).takeIf { it > 0 }
         val rosters = mutableMapOf<Int, List<RosterEntry>>()
         for (m in raw.optJSONArray("schedule").objects()) {
             for (side in listOf("home", "away")) {
@@ -101,12 +102,11 @@ object EspnParser {
                         name = player.optString("fullName", "Unknown"),
                         position = POSITIONS[player.optInt("defaultPositionId", -1)] ?: "?",
                         slotId = e.optInt("lineupSlotId", BENCH),
-                        points = playerPoints(pool, scoringPeriod),
+                        points = playerPoints(pool, scoringPeriod, season),
                         eligibleSlots = elig?.let { a -> (0 until a.length()).map { a.getInt(it) } } ?: emptyList(),
                         playerId = player.optLong("id", e.optLong("playerId", 0)),
                         proTeam = PRO_TEAMS[player.optInt("proTeamId", 0)] ?: "",
-                        projected = player.optJSONArray("stats").objects()
-                            .firstOrNull { it.optInt("scoringPeriodId") == scoringPeriod && it.optInt("statSourceId", -1) == 1 }
+                        projected = weekStat(player.optJSONArray("stats").objects(), scoringPeriod, PROJECTED, season)
                             ?.optDouble("appliedTotal", 0.0)?.orZero(),
                     )
                 }
@@ -144,6 +144,7 @@ object EspnParser {
         proTeams: Map<Int, ProTeam>,
         ratings: PositionRatings = emptyMap(),
     ): Map<Int, List<RosterSpot>> {
+        val season = raw.optInt("seasonId", 0).takeIf { it > 0 }
         val rosters = mutableMapOf<Int, List<RosterSpot>>()
         for (m in raw.optJSONArray("schedule").objects()) {
             for (side in listOf("home", "away")) {
@@ -154,7 +155,7 @@ object EspnParser {
                 val spots = roster.optJSONArray("entries").objects().map { e ->
                     val pool = e.optJSONObject("playerPoolEntry") ?: JSONObject()
                     RosterSpot(
-                        player = parsePlayer(pool, week, proTeams, ratings),
+                        player = parsePlayer(pool, week, proTeams, ratings, season),
                         slotId = e.optInt("lineupSlotId", BENCH),
                         locked = pool.optBoolean("lineupLocked", false) || e.optBoolean("lineupLocked", false),
                     )
@@ -171,21 +172,31 @@ object EspnParser {
         week: Int,
         proTeams: Map<Int, ProTeam>,
         ratings: PositionRatings = emptyMap(),
+        season: Int? = null,
     ): List<Player> =
         raw.optJSONArray("players").objects()
             .filter { it.optString("status", "FREEAGENT") in setOf("FREEAGENT", "WAIVERS") }
-            .map { parsePlayer(it, week, proTeams, ratings).copy(onWaivers = it.optString("status") == "WAIVERS") }
+            .map { parsePlayer(it, week, proTeams, ratings, season).copy(onWaivers = it.optString("status") == "WAIVERS") }
 
-    /** [pool] is a `playerPoolEntry` (or free agent list item): `{id, player: {...}, ...}`. */
-    fun parsePlayer(pool: JSONObject, week: Int, proTeams: Map<Int, ProTeam>, ratings: PositionRatings = emptyMap()): Player {
+    /**
+     * [pool] is a `playerPoolEntry` (or free agent list item): `{id, player: {...}, ...}`.
+     * Only [season]'s weekly stats are read; ESPN also sends other seasons' entries
+     * for the same week numbers.
+     */
+    fun parsePlayer(
+        pool: JSONObject,
+        week: Int,
+        proTeams: Map<Int, ProTeam>,
+        ratings: PositionRatings = emptyMap(),
+        season: Int? = null,
+    ): Player {
         val player = pool.optJSONObject("player") ?: JSONObject()
-        val stats = player.optJSONArray("stats").objects()
-        val projected = stats.firstOrNull { it.optInt("scoringPeriodId") == week && it.optInt("statSourceId", -1) == 1 }
-            ?.optDouble("appliedTotal", 0.0)?.orZero()
-        val actualStat = stats.firstOrNull { it.optInt("scoringPeriodId") == week && it.optInt("statSourceId", -1) == 0 }
+        val stats = weekly(player.optJSONArray("stats").objects(), season)
+        val projected = weekStat(stats, week, PROJECTED, season)?.optDouble("appliedTotal", 0.0)?.orZero()
+        val actualStat = weekStat(stats, week, ACTUAL, season)
         val actual = actualStat?.optDouble("appliedTotal", 0.0)?.orZero()
         val recent = stats
-            .filter { it.optInt("statSourceId", -1) == 0 && it.optInt("scoringPeriodId") in (week - 3) until week }
+            .filter { it.optInt("statSourceId", -1) == ACTUAL && it.optInt("scoringPeriodId") in (week - 3) until week }
             .sortedBy { it.optInt("scoringPeriodId") }
             .distinctBy { it.optInt("scoringPeriodId") }
             .map { it.optDouble("appliedTotal", 0.0).orZero() }
@@ -256,18 +267,18 @@ object EspnParser {
      * A player card response: NFL week -> points, projection and stat line for
      * [playerId]. Season totals (week 0) are skipped.
      */
-    fun parsePlayerWeeks(raw: JSONObject, playerId: Long): Map<Int, WeekLine> {
+    fun parsePlayerWeeks(raw: JSONObject, playerId: Long, season: Int? = null): Map<Int, WeekLine> {
         val entry = raw.optJSONArray("players").objects().firstOrNull {
             it.optLong("id", -1) == playerId || it.optJSONObject("player")?.optLong("id", -1) == playerId
         } ?: return emptyMap()
         val player = entry.optJSONObject("player") ?: return emptyMap()
         val position = POSITIONS[player.optInt("defaultPositionId", -1)]
-        val stats = player.optJSONArray("stats").objects().filter { it.optInt("scoringPeriodId") > 0 }
+        val stats = weekly(player.optJSONArray("stats").objects(), season)
         val weeks = stats.map { it.optInt("scoringPeriodId") }.distinct().sorted()
         return weeks.associateWith { w ->
             val forWeek = stats.filter { it.optInt("scoringPeriodId") == w }
-            val actual = forWeek.firstOrNull { it.optInt("statSourceId", -1) == 0 }
-            val proj = forWeek.firstOrNull { it.optInt("statSourceId", -1) == 1 }
+            val actual = forWeek.firstOrNull { it.optInt("statSourceId", -1) == ACTUAL }
+            val proj = forWeek.firstOrNull { it.optInt("statSourceId", -1) == PROJECTED }
             WeekLine(
                 actual = actual?.optDouble("appliedTotal", 0.0)?.orZero(),
                 projected = proj?.optDouble("appliedTotal", 0.0)?.orZero(),
@@ -363,6 +374,28 @@ object EspnParser {
         return out
     }
 
+    // statSourceId: 0 = actual points, 1 = ESPN's projection
+    private const val ACTUAL = 0
+    private const val PROJECTED = 1
+
+    /**
+     * The single-week entries (statSplitTypeId 1) of one season. ESPN mixes in
+     * season totals and, for some requests, last season's weeks under the same
+     * scoringPeriodId, so both are dropped. With no [season] given, the latest
+     * season present is used.
+     */
+    private fun weekly(stats: List<JSONObject>, season: Int?): List<JSONObject> {
+        val year = season ?: stats.maxOfOrNull { it.optInt("seasonId", 0) }?.takeIf { it > 0 }
+        return stats.filter { s ->
+            s.optInt("scoringPeriodId") > 0 &&
+                s.optInt("statSplitTypeId", 1) == 1 &&
+                (year == null || !s.has("seasonId") || s.optInt("seasonId") == year)
+        }
+    }
+
+    private fun weekStat(stats: List<JSONObject>, week: Int, source: Int, season: Int?): JSONObject? =
+        weekly(stats, season).firstOrNull { it.optInt("scoringPeriodId") == week && it.optInt("statSourceId", -1) == source }
+
     /** ESPN pro team ids, used when the pro schedule couldn't be loaded. */
     private val PRO_TEAMS = mapOf(
         1 to "ATL", 2 to "BUF", 3 to "CHI", 4 to "CIN", 5 to "CLE", 6 to "DAL", 7 to "DEN", 8 to "DET",
@@ -371,11 +404,9 @@ object EspnParser {
         25 to "SF", 26 to "SEA", 27 to "TB", 28 to "WSH", 29 to "CAR", 30 to "JAX", 33 to "BAL", 34 to "HOU",
     )
 
-    private fun playerPoints(pool: JSONObject, scoringPeriod: Int): Double {
+    private fun playerPoints(pool: JSONObject, scoringPeriod: Int, season: Int?): Double {
         val stats = pool.optJSONObject("player")?.optJSONArray("stats").objects()
-        // statSourceId 0 = actual points, 1 = projection
-        stats.firstOrNull { it.optInt("scoringPeriodId") == scoringPeriod && it.optInt("statSourceId", -1) == 0 }
-            ?.let { return it.optDouble("appliedTotal", 0.0).orZero() }
+        weekStat(stats, scoringPeriod, ACTUAL, season)?.let { return it.optDouble("appliedTotal", 0.0).orZero() }
         return pool.optDouble("appliedStatTotal", 0.0).orZero()
     }
 
