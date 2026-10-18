@@ -1,0 +1,16 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Ball -->
+    <path
+        android:fillColor="#8D5524"
+        android:pathData="M32,76 C32,52 52,32 76,32 C76,56 56,76 32,76 Z" />
+    <!-- Laces -->
+    <path
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="2.5"
+        android:strokeLineCap="round"
+        android:pathData="M46,62 L62,46 M48,56 L52,60 M52,52 L56,56 M56,48 L60,52" />
+</vector>

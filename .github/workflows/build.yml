@@ -28,6 +28,11 @@ jobs:
           set -o pipefail
           ./gradlew assembleDebug --stacktrace 2>&1 | tee build-output.log
 
+      - name: Fantasy Analyzer unit tests
+        run: |
+          set -o pipefail
+          ./gradlew :fantasy:testDebugUnitTest --stacktrace 2>&1 | tee -a build-output.log
+
       # Log/artifact downloads redirect through Azure Blob Storage, which
       # this project's egress policy can't reach — so post the failure
       # excerpt as a commit comment instead, a plain API object with no
@@ -67,3 +72,8 @@ jobs:
         with:
           name: roadlog-debug-apk
           path: app/build/outputs/apk/debug/*.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fantasy-analyzer-debug-apk
+          path: fantasy/build/outputs/apk/debug/*.apk

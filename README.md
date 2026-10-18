@@ -34,3 +34,10 @@ have full internet access) and upload the APK as a workflow artifact.
 - `service/LocationTrackingService.kt` — foreground service owning the FusedLocationProviderClient; survives process death by resuming from the DB's ACTIVE trip.
 - `service/GpsFilter.kt` — rejects fixes with poor accuracy or implausible implied speed (GPS teleport glitches), without dropping them from storage.
 - `ui/` — MainActivity, HomeViewModel, and the Compose `HomeScreen`.
+
+## Also in this repo
+
+- `fantasy/`: **Fantasy Analyzer**, a separate Android app for analyzing an
+  ESPN fantasy football league. CI builds it alongside RoadLog; see
+  `fantasy/README.md`.
+- `espn-fantasy/`: a desktop (Streamlit) version of the same analyzer.

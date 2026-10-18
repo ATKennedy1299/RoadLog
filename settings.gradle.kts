@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 }
 rootProject.name = "RoadLog"
 include(":app")
+include(":fantasy")
