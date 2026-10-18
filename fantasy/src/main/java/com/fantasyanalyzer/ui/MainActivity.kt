@@ -81,6 +81,8 @@ private fun App(vm: LeagueViewModel = viewModel()) {
                 vm.updateSettings(draft)
                 screen = Screen.Dashboard
             },
+            alerts = settings.alerts,
+            onAlertsChange = vm::updateAlerts,
             onBack = {
                 draft = settings
                 screen = Screen.Dashboard

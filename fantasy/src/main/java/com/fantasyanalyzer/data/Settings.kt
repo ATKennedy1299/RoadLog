@@ -10,6 +10,7 @@ data class Settings(
     val swid: String = "",
     /** The user's team in this league; 0 = work it out from their ESPN sign-in. */
     val myTeamId: Int = 0,
+    val alerts: AlertSettings = AlertSettings(),
 ) {
     val hasLeague: Boolean get() = leagueId.toLongOrNull() != null
     val hasCookies: Boolean get() = espnS2.isNotBlank() && swid.isNotBlank()

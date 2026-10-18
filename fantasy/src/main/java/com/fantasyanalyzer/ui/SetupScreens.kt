@@ -50,6 +50,20 @@ import com.fantasyanalyzer.data.EspnClient
 import com.fantasyanalyzer.data.EspnLogin
 import com.fantasyanalyzer.data.LeagueRef
 import com.fantasyanalyzer.data.Settings
+import com.fantasyanalyzer.data.AlertSettings
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.core.content.ContextCompat
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -62,21 +76,32 @@ fun SettingsScreen(
     onSignOut: () -> Unit,
     onSave: () -> Unit,
     onBack: () -> Unit,
+    alerts: AlertSettings,
+    onAlertsChange: (AlertSettings) -> Unit,
 ) {
     BackHandler(onBack = onBack)
     var showManual by remember { mutableStateOf(false) }
+    var settingsTab by rememberSaveable { mutableIntStateOf(0) }
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("League setup") },
+                title = { Text("Settings") },
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back") }
                 },
             )
         },
     ) { pad ->
+      Column(Modifier.padding(pad).fillMaxSize()) {
+        TabRow(selectedTabIndex = settingsTab) {
+            Tab(selected = settingsTab == 0, onClick = { settingsTab = 0 }, text = { Text("League") })
+            Tab(selected = settingsTab == 1, onClick = { settingsTab = 1 }, text = { Text("Notifications") })
+        }
+        if (settingsTab == 1) {
+            NotificationSettings(alerts, onAlertsChange, available = !draft.useDemo && draft.hasLeague)
+        } else
         Column(
-            Modifier.padding(pad).imePadding().fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            Modifier.imePadding().fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -164,6 +189,84 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) { Text(if (draft.useDemo) "Show demo league" else "Load my league") }
         }
+      }
+    }
+}
+
+/** Game-day notifications: what to be told about. Changes save right away. */
+@Composable
+private fun NotificationSettings(a: AlertSettings, onChange: (AlertSettings) -> Unit, available: Boolean) {
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) onChange(a.copy(enabled = true))
+    }
+    val context = LocalContext.current
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        if (!available) {
+            Text("Connect your ESPN league to turn on notifications.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            return@Column
+        }
+        AlertSwitch("Game-day notifications", "Alerts about your matchup while games are on.", a.enabled) { on ->
+            if (on && Build.VERSION.SDK_INT >= 33 &&
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+            ) {
+                permission.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                onChange(a.copy(enabled = on))
+            }
+        }
+        if (!a.enabled) return@Column
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+        Text("SCORING", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        AlertSwitch("Player scored", "One alert with the play, the new matchup score and your win chance.", a.playerScored) {
+            onChange(a.copy(playerScored = it))
+        }
+        if (a.playerScored) {
+            Text("Counts as a score when a player gains at least", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(3, 4, 6).forEach { t ->
+                    FilterChip(selected = a.scoreThreshold == t, onClick = { onChange(a.copy(scoreThreshold = t)) },
+                        label = { Text("$t pts" + if (t == 6) " (TDs)" else "") })
+                }
+            }
+            AlertSwitch("Include my opponent's players", null, a.includeOpponent) { onChange(a.copy(includeOpponent = it)) }
+        }
+        AlertSwitch("Red zone", "When one of your players' teams gets inside the 20.", a.redZone) { onChange(a.copy(redZone = it)) }
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        Text("MATCHUP", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        AlertSwitch("Lead changes", null, a.leadChange) { onChange(a.copy(leadChange = it)) }
+        AlertSwitch("Win chance crosses 50%", null, a.winSwing) { onChange(a.copy(winSwing = it)) }
+        AlertSwitch("Final result", null, a.finalResult) { onChange(a.copy(finalResult = it)) }
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        Text("LINEUP", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        AlertSwitch("Starter ruled out or doubtful", "Before their game starts.", a.injuries) { onChange(a.copy(injuries = it)) }
+        AlertSwitch("Lineup check before kickoff", "About an hour before a game if a starter is out, on bye, or a slot is empty.",
+            a.lineupReminder) { onChange(a.copy(lineupReminder = it)) }
+
+        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+        AlertSwitch(
+            "Instant alerts",
+            "Checks every minute during games and shows a \"Live scoring\" notification while it does. Off, or if Android " +
+                "won't allow it while the app is closed, checks run every 15 minutes.",
+            a.instant,
+        ) { onChange(a.copy(instant = it)) }
+    }
+}
+
+@Composable
+private fun AlertSwitch(title: String, subtitle: String?, checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            subtitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+        Switch(checked = checked, onCheckedChange = onChange)
     }
 }
 

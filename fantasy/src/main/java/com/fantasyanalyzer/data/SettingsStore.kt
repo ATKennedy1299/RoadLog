@@ -16,6 +16,21 @@ class SettingsStore(context: Context) {
         espnS2 = prefs.getString(KEY_S2, "") ?: "",
         swid = prefs.getString(KEY_SWID, "") ?: "",
         myTeamId = prefs.getInt(KEY_MY_TEAM, 0),
+        alerts = AlertSettings().let { d ->
+            AlertSettings(
+                enabled = prefs.getBoolean("alert_enabled", d.enabled),
+                playerScored = prefs.getBoolean("alert_scored", d.playerScored),
+                scoreThreshold = prefs.getInt("alert_threshold", d.scoreThreshold),
+                includeOpponent = prefs.getBoolean("alert_opponent", d.includeOpponent),
+                leadChange = prefs.getBoolean("alert_lead", d.leadChange),
+                winSwing = prefs.getBoolean("alert_win", d.winSwing),
+                finalResult = prefs.getBoolean("alert_final", d.finalResult),
+                redZone = prefs.getBoolean("alert_redzone", d.redZone),
+                injuries = prefs.getBoolean("alert_injuries", d.injuries),
+                lineupReminder = prefs.getBoolean("alert_reminder", d.lineupReminder),
+                instant = prefs.getBoolean("alert_instant", d.instant),
+            )
+        },
     )
 
     fun save(s: Settings) {
@@ -26,6 +41,17 @@ class SettingsStore(context: Context) {
             .putString(KEY_S2, s.espnS2)
             .putString(KEY_SWID, s.swid)
             .putInt(KEY_MY_TEAM, s.myTeamId)
+            .putBoolean("alert_enabled", s.alerts.enabled)
+            .putBoolean("alert_scored", s.alerts.playerScored)
+            .putInt("alert_threshold", s.alerts.scoreThreshold)
+            .putBoolean("alert_opponent", s.alerts.includeOpponent)
+            .putBoolean("alert_lead", s.alerts.leadChange)
+            .putBoolean("alert_win", s.alerts.winSwing)
+            .putBoolean("alert_final", s.alerts.finalResult)
+            .putBoolean("alert_redzone", s.alerts.redZone)
+            .putBoolean("alert_injuries", s.alerts.injuries)
+            .putBoolean("alert_reminder", s.alerts.lineupReminder)
+            .putBoolean("alert_instant", s.alerts.instant)
             .apply()
     }
 

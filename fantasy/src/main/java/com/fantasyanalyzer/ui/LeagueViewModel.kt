@@ -31,6 +31,8 @@ import com.fantasyanalyzer.data.Settings
 import com.fantasyanalyzer.data.SettingsStore
 import com.fantasyanalyzer.data.WeekLine
 import com.fantasyanalyzer.data.AddDrop
+import com.fantasyanalyzer.data.AlertSettings
+import com.fantasyanalyzer.alerts.AlertScheduler
 import com.fantasyanalyzer.data.PendingClaim
 import com.fantasyanalyzer.data.EspnParser
 import com.fantasyanalyzer.data.withGames
@@ -268,6 +270,19 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         load()
+        // Keep background score checks in line with the settings; a check now (while the app is on
+        // screen) is allowed to switch to every-minute checks if games are live.
+        AlertScheduler.apply(getApplication(), _settings.value)
+        if (_settings.value.alerts.instant) AlertScheduler.runNow(getApplication(), _settings.value)
+    }
+
+    /** Saves notification choices right away (no reload) and updates the background checks. */
+    fun updateAlerts(a: AlertSettings) {
+        val s = _settings.value.copy(alerts = a)
+        store.save(s)
+        _settings.value = s
+        AlertScheduler.apply(getApplication(), s)
+        if (a.enabled) AlertScheduler.runNow(getApplication(), s)
     }
 
     private fun cacheFor(s: Settings): JsonCache = FileJsonCache(File(cacheRoot, "${s.leagueId}-${s.year}"))
@@ -501,6 +516,7 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
         val next = if (s.leagueId != prev.leagueId || s.useDemo != prev.useDemo) s.copy(myTeamId = 0) else s
         store.save(next)
         _settings.value = next
+        AlertScheduler.apply(getApplication(), next)
         if (next.leagueId != prev.leagueId || next.year != prev.year || next.useDemo != prev.useDemo) {
             _state.value = UiState.Loading("Loading…") // don't flash the old league
         }
