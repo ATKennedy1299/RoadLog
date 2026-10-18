@@ -248,6 +248,30 @@ object EspnParser {
         return parts.take(4).joinToString(", ").ifBlank { null }
     }
 
+    /**
+     * A player card response: NFL week -> points, projection and stat line for
+     * [playerId]. Season totals (week 0) are skipped.
+     */
+    fun parsePlayerWeeks(raw: JSONObject, playerId: Long): Map<Int, WeekLine> {
+        val entry = raw.optJSONArray("players").objects().firstOrNull {
+            it.optLong("id", -1) == playerId || it.optJSONObject("player")?.optLong("id", -1) == playerId
+        } ?: return emptyMap()
+        val player = entry.optJSONObject("player") ?: return emptyMap()
+        val position = POSITIONS[player.optInt("defaultPositionId", -1)]
+        val stats = player.optJSONArray("stats").objects().filter { it.optInt("scoringPeriodId") > 0 }
+        val weeks = stats.map { it.optInt("scoringPeriodId") }.distinct().sorted()
+        return weeks.associateWith { w ->
+            val forWeek = stats.filter { it.optInt("scoringPeriodId") == w }
+            val actual = forWeek.firstOrNull { it.optInt("statSourceId", -1) == 0 }
+            val proj = forWeek.firstOrNull { it.optInt("statSourceId", -1) == 1 }
+            WeekLine(
+                actual = actual?.optDouble("appliedTotal", 0.0)?.orZero(),
+                projected = proj?.optDouble("appliedTotal", 0.0)?.orZero(),
+                statLine = actual?.optJSONObject("stats")?.let { statLine(it, position) },
+            )
+        }
+    }
+
     /** `mPositionalRatings`: position id -> opponent pro team id -> rank vs that position. */
     fun parseRatings(raw: JSONObject): PositionRatings {
         val byPos = raw.optJSONObject("positionAgainstOpponent")?.optJSONObject("positionalRatings") ?: return emptyMap()

@@ -188,4 +188,24 @@ class CacheAndLiveTest {
         val done = game.copy(state = NflGame.POST)
         assertNull(player("WR", "SEA").copy(game = done).fieldStatus)
     }
+
+    @Test
+    fun parsesPlayerCardWeeks() {
+        val raw = JSONObject(
+            """
+            {"players": [{"id": 77, "player": {"id": 77, "defaultPositionId": 3, "stats": [
+              {"scoringPeriodId": 0, "statSourceId": 0, "appliedTotal": 140.0},
+              {"scoringPeriodId": 1, "statSourceId": 0, "appliedTotal": 18.4, "stats": {"53": 7, "42": 104}},
+              {"scoringPeriodId": 1, "statSourceId": 1, "appliedTotal": 14.1},
+              {"scoringPeriodId": 2, "statSourceId": 1, "appliedTotal": 12.0}]}}]}
+            """
+        )
+        val weeks = EspnParser.parsePlayerWeeks(raw, 77)
+        assertEquals(setOf(1, 2), weeks.keys)
+        assertEquals(18.4, weeks.getValue(1).actual!!, 1e-9)
+        assertEquals(14.1, weeks.getValue(1).projected!!, 1e-9)
+        assertEquals("7 REC, 104 YDS", weeks.getValue(1).statLine)
+        assertNull(weeks.getValue(2).actual) // not played yet
+        assertTrue(EspnParser.parsePlayerWeeks(raw, 99).isEmpty())
+    }
 }

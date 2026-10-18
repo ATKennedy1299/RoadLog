@@ -29,6 +29,8 @@ import com.fantasyanalyzer.data.RosterSpot
 import com.fantasyanalyzer.data.SampleData
 import com.fantasyanalyzer.data.Settings
 import com.fantasyanalyzer.data.SettingsStore
+import com.fantasyanalyzer.data.WeekLine
+import com.fantasyanalyzer.data.EspnParser
 import com.fantasyanalyzer.data.withGames
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -166,6 +168,27 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _saveState = MutableStateFlow<SaveState>(SaveState.Idle)
     val saveState: StateFlow<SaveState> = _saveState.asStateFlow()
+
+    private val _playerWeeks = MutableStateFlow<Map<Long, Map<Int, WeekLine>>>(emptyMap())
+    /** Player id -> their whole season, loaded when their sheet is opened. */
+    val playerWeeks: StateFlow<Map<Long, Map<Int, WeekLine>>> = _playerWeeks.asStateFlow()
+
+    /** Loads [playerId]'s season week by week for the player sheet (once per session). */
+    fun requestPlayer(playerId: Long) {
+        val s = _settings.value
+        if (s.useDemo || playerId in _playerWeeks.value) return
+        val net = client(s)
+        viewModelScope.launch {
+            val weeks = try {
+                withContext(Dispatchers.IO) { EspnParser.parsePlayerWeeks(net.playerCard(playerId), playerId) }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+            if (weeks != null && weeks.isNotEmpty()) _playerWeeks.value = _playerWeeks.value + (playerId to weeks)
+        }
+    }
 
     private val _liveMode = MutableStateFlow(false)
     val liveMode: StateFlow<Boolean> = _liveMode.asStateFlow()

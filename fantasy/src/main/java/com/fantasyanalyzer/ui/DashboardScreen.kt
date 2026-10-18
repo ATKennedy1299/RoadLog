@@ -87,6 +87,8 @@ fun DashboardScreen(
     liveMode: Boolean,
     onLiveMode: (Boolean) -> Unit,
     onLiveTick: () -> Unit,
+    playerWeeks: Map<Long, Map<Int, com.fantasyanalyzer.data.WeekLine>>,
+    onRequestPlayer: (Long) -> Unit,
 ) {
     val dashboard = (state as? UiState.Loaded)?.dashboard
 
@@ -175,7 +177,8 @@ fun DashboardScreen(
                     if (state.dashboard.standings.isEmpty()) {
                         Centered { Text("No completed games yet this season.") }
                     } else {
-                        Tabs(state.dashboard, state.dashboard.myTeamId(settings), onSetMyTeam, weekLineups, onRequestWeek, lineupActions)
+                        Tabs(state.dashboard, state.dashboard.myTeamId(settings), onSetMyTeam, weekLineups, onRequestWeek, lineupActions,
+                            playerWeeks, onRequestPlayer)
                     }
                 }
             }
@@ -200,11 +203,16 @@ private fun Tabs(
     weekLineups: Map<Int, WeekLineups>,
     onRequestWeek: (Int) -> Unit,
     lineupActions: LineupActions,
+    playerWeeks: Map<Long, Map<Int, com.fantasyanalyzer.data.WeekLine>>,
+    onRequestPlayer: (Long) -> Unit,
 ) {
     // Opens on Matchup (tab order unchanged).
     var tab by rememberSaveable { mutableIntStateOf(TABS.indexOf("Matchup")) }
     var sheetPlayer by remember { mutableStateOf<Player?>(null) }
-    sheetPlayer?.let { PlayerSheet(it, d) { sheetPlayer = null } }
+    sheetPlayer?.let { p ->
+        LaunchedEffect(p.id) { onRequestPlayer(p.id) }
+        PlayerSheet(p, d, playerWeeks[p.id]) { sheetPlayer = null }
+    }
     CompositionLocalProvider(LocalOpenPlayer provides { p: Player -> sheetPlayer = p }) {
         Column {
             ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {

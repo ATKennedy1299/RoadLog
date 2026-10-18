@@ -177,7 +177,7 @@ fun TeamLogo(
 
 /** Everything we know about a player: this week, recent games and what's coming. */
 @Composable
-fun PlayerSheet(p: Player, d: Dashboard, onDismiss: () -> Unit) {
+fun PlayerSheet(p: Player, d: Dashboard, weeks: Map<Int, com.fantasyanalyzer.data.WeekLine>?, onDismiss: () -> Unit) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     val now = System.currentTimeMillis()
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
@@ -221,7 +221,7 @@ fun PlayerSheet(p: Player, d: Dashboard, onDismiss: () -> Unit) {
             p.statLine?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 
             // The whole season, ESPN game-log style, with how tough each opponent is for this position.
-            val rows = seasonSchedule(d, p)
+            val rows = seasonSchedule(d, p, weeks.orEmpty())
             val played = rows.mapNotNull { it.points }
             if (rows.isNotEmpty()) {
                 SectionTitle(
@@ -247,19 +247,22 @@ fun PlayerSheet(p: Player, d: Dashboard, onDismiss: () -> Unit) {
                     ) {
                         Text("${r.week}", Modifier.width(40.dp), style = MaterialTheme.typography.bodySmall,
                             fontWeight = if (current) FontWeight.Bold else FontWeight.Normal)
-                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
-                            Text(r.opponent, style = MaterialTheme.typography.bodySmall)
-                            r.rank?.let { rank ->
-                                Text(
-                                    ordinal(rank),
-                                    Modifier.padding(start = 6.dp).clip(RoundedCornerShape(4.dp))
-                                        .background((rankColor(rank) ?: muted).copy(alpha = 0.16f))
-                                        .padding(horizontal = 5.dp, vertical = 1.dp),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = rankColor(rank) ?: muted,
-                                )
+                        Column(Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(r.opponent, style = MaterialTheme.typography.bodySmall)
+                                r.rank?.let { rank ->
+                                    Text(
+                                        ordinal(rank),
+                                        Modifier.padding(start = 6.dp).clip(RoundedCornerShape(4.dp))
+                                            .background((rankColor(rank) ?: muted).copy(alpha = 0.16f))
+                                            .padding(horizontal = 5.dp, vertical = 1.dp),
+                                        style = MaterialTheme.typography.labelSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = rankColor(rank) ?: muted,
+                                    )
+                                }
                             }
+                            r.statLine?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = muted) }
                         }
                         Text(r.points?.let { fmt1(it) } ?: "–", Modifier.width(56.dp), style = MaterialTheme.typography.bodySmall,
                             fontWeight = FontWeight.SemiBold, textAlign = TextAlign.End,
@@ -281,14 +284,14 @@ fun PlayerSheet(p: Player, d: Dashboard, onDismiss: () -> Unit) {
     }
 }
 
-private class ScheduleRow(val week: Int, val opponent: String, val rank: Int?, val points: Double?, val projected: Double?)
+private class ScheduleRow(val week: Int, val opponent: String, val rank: Int?, val points: Double?, val projected: Double?, val statLine: String? = null)
 
 /**
  * Every NFL week of the season for [p]: opponent (or BYE), that defense's
  * season rank against the position, and points/projection from the league's
  * box scores for weeks already played.
  */
-private fun seasonSchedule(d: Dashboard, p: Player): List<ScheduleRow> {
+private fun seasonSchedule(d: Dashboard, p: Player, card: Map<Int, com.fantasyanalyzer.data.WeekLine>): List<ScheduleRow> {
     val league = d.league
     // NFL week -> this player's box score line, from whichever fantasy roster had them.
     val byWeek = d.data.boxScores.flatMap { (matchupWeek, rosters) ->
@@ -300,21 +303,28 @@ private fun seasonSchedule(d: Dashboard, p: Player): List<ScheduleRow> {
     val posId = POSITIONS.entries.firstOrNull { it.value == p.position }?.key
     val lastWeek = maxOf(league.finalScoringPeriod, byWeek.keys.maxOrNull() ?: 0)
     if (team == null) {
-        return byWeek.toSortedMap().map { (w, e) -> ScheduleRow(w, "–", null, e.points, e.projected) }
+        val weeks = (byWeek.keys + card.keys).toSortedSet()
+        return weeks.map { w -> ScheduleRow(w, "–", null, card[w]?.actual ?: byWeek[w]?.points, card[w]?.projected ?: byWeek[w]?.projected, card[w]?.statLine) }
     }
     return (1..lastWeek).map { week ->
         val g = team.games[week]
         val entry = byWeek[week]
+        val c = card[week]
+        // The player's own card first (covers free agents), then the league's box scores, then this week's live data.
+        val points = c?.actual ?: entry?.points
+            ?: if (week == league.currentScoringPeriod && p.gameStarted(System.currentTimeMillis())) p.actual else null
+        val projected = c?.projected ?: entry?.projected ?: if (week == league.currentScoringPeriod) p.projected else null
         if (g == null || team.byeWeek == week) {
-            ScheduleRow(week, "BYE", null, entry?.points, entry?.projected)
+            ScheduleRow(week, "BYE", null, points, projected)
         } else {
             val opp = pro[g.opponentId]?.abbrev ?: "?"
             ScheduleRow(
                 week,
                 if (g.home) opp else "@$opp",
                 posId?.let { d.data.ratings[it]?.get(g.opponentId) },
-                entry?.points ?: if (week == league.currentScoringPeriod && p.gameStarted(System.currentTimeMillis())) p.actual else null,
-                entry?.projected ?: if (week == league.currentScoringPeriod) p.projected else null,
+                points,
+                projected,
+                c?.statLine,
             )
         }
     }

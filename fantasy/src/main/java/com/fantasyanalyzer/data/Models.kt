@@ -255,6 +255,9 @@ fun Map<Int, List<RosterSpot>>.withGames(scoreboard: Map<String, NflGame>): Map<
     if (scoreboard.isEmpty()) this
     else mapValues { (_, r) -> r.map { s -> scoreboard[s.player.proTeam]?.let { s.copy(player = s.player.copy(game = it)) } ?: s } }
 
+/** One NFL week of a player's season: points scored (null if they didn't play), ESPN's projection, box score line. */
+data class WeekLine(val actual: Double?, val projected: Double?, val statLine: String?)
+
 /** ESPN headshot for a player, or the team logo for a D/ST (ESPN gives those negative ids). */
 fun Player.photoUrl(): String =
     if (id < 0 || position == "D/ST") nflLogoUrl(proTeam)

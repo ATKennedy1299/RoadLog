@@ -87,6 +87,15 @@ class EspnClient(
         if (resp.code in 200..299) parseObject(resp.body) ?: JSONObject() else throw EspnException("Scoreboard: HTTP ${resp.code}")
     }
 
+    /** One player's whole season, week by week (ESPN's player card data). */
+    fun playerCard(playerId: Long): JSONObject = cached("card-$playerId", reuseFor = THIRTY_MINUTES) {
+        get(
+            listOf("view" to "kona_playercard"),
+            filter = """{"players":{"filterIds":{"value":[$playerId]},""" +
+                """"filterStatsForTopScoringPeriodIds":{"value":18,"additionalValue":["00$year","10$year"]}}}""",
+        )
+    }
+
     /** Free agents and waiver players who can fill [slotId], most-owned first. */
     fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = cached("fa-$week-$slotId") { freeAgentsNet(week, slotId, limit) }
 
@@ -283,6 +292,7 @@ class EspnClient(
         private const val WRITE_URL = "https://lm-api-writes.fantasy.espn.com/apis/v3/games/ffl"
         private const val SCOREBOARD_URL = "https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard"
         private const val SIX_HOURS = 6L * 60 * 60 * 1000
+        private const val THIRTY_MINUTES = 30L * 60 * 1000
         private const val ONE_DAY = 24L * 60 * 60 * 1000
 
         /** The host the league API lives on, for reading the in-app browser's cookies for it. */
