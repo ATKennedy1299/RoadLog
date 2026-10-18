@@ -215,7 +215,12 @@ private fun Tabs(
         LaunchedEffect(p.id) { onRequestPlayer(p.id) }
         PlayerSheet(p, d, playerWeeks[p.id]) { sheetPlayer = null }
     }
-    CompositionLocalProvider(LocalOpenPlayer provides { p: Player -> sheetPlayer = p }) {
+    var scorePlayer by remember { mutableStateOf<Player?>(null) }
+    scorePlayer?.let { p -> ScoreBreakdownDialog(p, d.league.scoring) { scorePlayer = null } }
+    CompositionLocalProvider(
+        LocalOpenPlayer provides { p: Player -> sheetPlayer = p },
+        LocalOpenScore provides { p: Player -> scorePlayer = p },
+    ) {
         Column {
             ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
                 TABS.forEachIndexed { i, title ->

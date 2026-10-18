@@ -79,6 +79,8 @@ data class League(
     val playoffTeamCount: Int = 4,
     /** The waiver budget (FAAB) each team starts with; null when the league doesn't bid. */
     val faabBudget: Int? = null,
+    /** ESPN stat id -> the league's points for it. */
+    val scoring: Map<Int, ScoringRule> = emptyMap(),
 ) {
     /** Most players a team can carry outside IR. */
     val rosterLimit: Int get() = lineupSlotCounts.filterKeys { it != IR }.values.sum()
@@ -132,6 +134,10 @@ data class Player(
     val statLine: String? = null,
     /** Live NFL game state from ESPN's scoreboard (current week only). */
     val game: NflGame? = null,
+    /** This week's raw stats, ESPN stat id -> value (e.g. 42 -> 134 receiving yards). */
+    val weekStats: Map<Int, Double> = emptyMap(),
+    /** Points each of those stats earned under the league's scoring, when ESPN sends them. */
+    val appliedStats: Map<Int, Double> = emptyMap(),
 ) {
     val isOut: Boolean get() = onBye || injuryStatus in OUT_STATUSES
 

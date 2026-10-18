@@ -57,6 +57,13 @@ object EspnParser {
             }
         }
 
+        val scoring = settings.optJSONObject("scoringSettings")?.optJSONArray("scoringItems").objects().associate { item ->
+            val overrides = item.optJSONObject("pointsOverrides")?.let { o ->
+                o.keys().asSequence().mapNotNull { k -> k.toIntOrNull()?.let { it to o.optDouble(k, 0.0).orZero() } }.toMap()
+            } ?: emptyMap()
+            item.optInt("statId") to ScoringRule(item.optDouble("points", 0.0).orZero(), overrides)
+        }
+
         val periods = mutableMapOf<Int, List<Int>>()
         sched.optJSONObject("matchupPeriods")?.let { mp ->
             for (k in mp.keys()) {
@@ -77,6 +84,7 @@ object EspnParser {
             matchupPeriods = periods,
             currentScoringPeriod = scoringPeriod,
             finalScoringPeriod = finalPeriod,
+            scoring = scoring,
             playoffTeamCount = sched.optInt("playoffTeamCount", 4).coerceIn(1, teams.size.coerceAtLeast(1)),
             faabBudget = settings.optJSONObject("acquisitionSettings")?.let { a ->
                 if (a.optBoolean("isUsingAcquisitionBudget", false)) a.optInt("acquisitionBudget", 100) else null
@@ -226,6 +234,8 @@ object EspnParser {
             percentStarted = ownership?.optDouble("percentStarted", 0.0)?.orZero() ?: 0.0,
             opponentRank = game?.let { ratings[positionId]?.get(it.opponentId) },
             statLine = actualStat?.optJSONObject("stats")?.let { statLine(it, POSITIONS[positionId]) },
+            weekStats = numbers(actualStat?.optJSONObject("stats")),
+            appliedStats = numbers(actualStat?.optJSONObject("appliedStats")),
             opponent = game?.let { g ->
                 val opp = proTeams[g.opponentId]?.abbrev ?: PRO_TEAMS[g.opponentId] ?: return@let null
                 if (g.home) opp else "@$opp"
@@ -392,6 +402,11 @@ object EspnParser {
                 (year == null || !s.has("seasonId") || s.optInt("seasonId") == year)
         }
     }
+
+    /** A JSON object of stat id -> number, e.g. ESPN's `stats` or `appliedStats`. */
+    private fun numbers(o: JSONObject?): Map<Int, Double> = o?.keys()?.asSequence()
+        ?.mapNotNull { k -> k.toIntOrNull()?.let { it to o.optDouble(k, 0.0).orZero() } }
+        ?.filter { it.second != 0.0 }?.toMap() ?: emptyMap()
 
     private fun weekStat(stats: List<JSONObject>, week: Int, source: Int, season: Int?): JSONObject? =
         weekly(stats, season).firstOrNull { it.optInt("scoringPeriodId") == week && it.optInt("statSourceId", -1) == source }

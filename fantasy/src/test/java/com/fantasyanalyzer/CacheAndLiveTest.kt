@@ -13,6 +13,8 @@ import com.fantasyanalyzer.data.ProTeam
 import com.fantasyanalyzer.data.RosterSpot
 import com.fantasyanalyzer.data.photoUrl
 import com.fantasyanalyzer.data.withGames
+import com.fantasyanalyzer.data.ScoreBreakdown
+import com.fantasyanalyzer.data.ScoringRule
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -187,6 +189,30 @@ class CacheAndLiveTest {
         assertEquals(FieldStatus.ON_FIELD, player("RB", "SEA").copy(game = midfield).fieldStatus)
         val done = game.copy(state = NflGame.POST)
         assertNull(player("WR", "SEA").copy(game = done).fieldStatus)
+    }
+
+    @Test
+    fun scoreBreakdownFromEspnAndFromRules() {
+        val pool = JSONObject(
+            """{"id": 3, "player": {"id": 3, "fullName": "J S-N", "defaultPositionId": 3, "proTeamId": 26, "stats": [
+              {"seasonId": 2026, "scoringPeriodId": 6, "statSplitTypeId": 1, "statSourceId": 0, "appliedTotal": 25.4,
+               "stats": {"42": 134, "53": 12, "58": 14}, "appliedStats": {"42": 13.4, "53": 12.0}}]}}"""
+        )
+        val p = EspnParser.parsePlayer(pool, 6, emptyMap(), season = 2026)
+        val rules = mapOf(42 to ScoringRule(0.1), 53 to ScoringRule(1.0, mapOf(6 to 1.5)))
+        val lines = ScoreBreakdown.lines(p, rules)
+        assertEquals(listOf("Receiving Yards", "Each Reception"), lines.map { it.label })
+        assertEquals(listOf(0.1, 1.0), lines.map { it.perUnit })
+        assertEquals(listOf(134.0, 12.0), lines.map { it.count })
+        assertEquals(25.4, lines.sumOf { it.points }, 1e-9)
+        // No appliedStats from ESPN: worked out from the league's rules, TE override included.
+        val te = p.copy(position = "TE", appliedStats = emptyMap())
+        assertEquals(listOf(13.4, 18.0), ScoreBreakdown.lines(te, rules).map { it.points })
+        val league = EspnParser.parseLeague(JSONObject(
+            """{"id": 1, "seasonId": 2026, "settings": {"scoringSettings": {"scoringItems": [
+              {"statId": 53, "points": 1.0, "pointsOverrides": {"6": 1.5}}]}}}"""
+        ))
+        assertEquals(ScoringRule(1.0, mapOf(6 to 1.5)), league.scoring[53])
     }
 
     @Test

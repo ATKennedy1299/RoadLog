@@ -3,6 +3,16 @@
 package com.fantasyanalyzer.ui
 
 import androidx.compose.foundation.background
+import com.fantasyanalyzer.data.ScoringRule
+import com.fantasyanalyzer.data.ScoreBreakdown
+import androidx.compose.ui.window.Dialog
+import androidx.compose.runtime.remember
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -350,3 +360,79 @@ fun FieldLegend(modifier: Modifier = Modifier) {
         }
     }
 }
+
+/** Opens a player's score breakdown (tapping their points, as on ESPN). */
+val LocalOpenScore = staticCompositionLocalOf<(Player) -> Unit> { {} }
+
+/** Whether there's a breakdown to show for this player's points. */
+fun hasBreakdown(p: Player): Boolean = p.appliedStats.isNotEmpty() || p.weekStats.isNotEmpty()
+
+/** ESPN's scoring breakdown card: each category, points per, the count and points earned, and the total. */
+@Composable
+fun ScoreBreakdownDialog(p: Player, scoring: Map<Int, ScoringRule>, onDismiss: () -> Unit) {
+    val lines = remember(p, scoring) { ScoreBreakdown.lines(p, scoring) }
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Dialog(onDismissRequest = onDismiss) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+            Column(
+                Modifier.padding(top = 44.dp).fillMaxWidth().clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surfaceContainerHigh),
+            ) {
+                Box(Modifier.fillMaxWidth()) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.align(Alignment.TopEnd)) {
+                        Icon(Icons.Default.Close, contentDescription = "Close")
+                    }
+                    Column(
+                        Modifier.fillMaxWidth().padding(top = 48.dp, bottom = 16.dp, start = 16.dp, end = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(p.name, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center)
+                        p.opponent?.let { opp ->
+                            Text(if (opp.startsWith("@")) "@ ${opp.drop(1)}" else "vs. $opp",
+                                style = MaterialTheme.typography.bodyMedium, color = muted)
+                        }
+                    }
+                }
+                HorizontalDivider()
+                BreakdownRow("SCORING CATEGORY", "PTS PER", "#", "SCORE", header = true)
+                HorizontalDivider()
+                Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
+                    if (lines.isEmpty()) {
+                        Text("No scoring plays yet.", Modifier.padding(16.dp), color = muted)
+                    }
+                    lines.forEach { l ->
+                        BreakdownRow(l.label, l.perUnit?.let { trim(it) } ?: "–", trim(l.count), fmt1(l.points))
+                        HorizontalDivider()
+                    }
+                }
+                Row(
+                    Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                ) {
+                    Text("TOTAL", Modifier.weight(1f), fontWeight = FontWeight.Bold)
+                    Text(fmt1(p.actual ?: lines.sumOf { it.points }), fontWeight = FontWeight.Bold)
+                }
+            }
+            PlayerPhoto(p, 88.dp, Modifier.border(2.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape))
+        }
+    }
+}
+
+@Composable
+private fun BreakdownRow(label: String, per: String, count: String, score: String, header: Boolean = false) {
+    val style = if (header) MaterialTheme.typography.labelMedium else MaterialTheme.typography.bodyMedium
+    val weight = if (header) FontWeight.Bold else FontWeight.Normal
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = if (header) 10.dp else 12.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Text(label, Modifier.weight(1f), style = style, fontWeight = weight)
+        Text(per, Modifier.width(64.dp), style = style, fontWeight = weight, textAlign = TextAlign.Center)
+        Text(count, Modifier.width(48.dp), style = style, fontWeight = weight, textAlign = TextAlign.Center)
+        Text(score, Modifier.width(56.dp), style = style, fontWeight = if (header) weight else FontWeight.Bold,
+            textAlign = TextAlign.End)
+    }
+}
+
+/** 0.1, 1, 34, -2: no trailing ".0" on whole numbers. */
+private fun trim(v: Double): String =
+    if (v == Math.rint(v)) v.toLong().toString() else String.format(Locale.US, "%.2f", v).trimEnd('0').trimEnd('.')

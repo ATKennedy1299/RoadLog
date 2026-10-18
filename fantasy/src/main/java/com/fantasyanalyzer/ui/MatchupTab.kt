@@ -472,10 +472,12 @@ private fun PlayerCell(spot: RosterSpot?, now: Long, mirrored: Boolean, ahead: B
             }
         }
     }
+    val openScore = LocalOpenScore.current
     val chip: @Composable () -> Unit = {
         Column(
             Modifier.widthIn(min = 40.dp).clip(RoundedCornerShape(8.dp))
                 .background(if (ahead) Good.copy(alpha = 0.16f) else Color.Transparent)
+                .then(if (p.gameStarted(now) && hasBreakdown(p)) Modifier.clickable { openScore(p) } else Modifier)
                 .padding(horizontal = 4.dp, vertical = 3.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {

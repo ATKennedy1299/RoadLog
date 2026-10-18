@@ -6,6 +6,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -396,7 +397,13 @@ private fun RosterLine(spot: RosterSpot, originalSlot: Int, locked: Boolean, now
                     Text(it, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Column(horizontalAlignment = Alignment.End, modifier = Modifier.padding(start = 8.dp)) {
+            val openScore = LocalOpenScore.current
+            Column(
+                horizontalAlignment = Alignment.End,
+                modifier = Modifier.padding(start = 8.dp).clip(RoundedCornerShape(8.dp))
+                    .then(if (p.gameStarted(now) && hasBreakdown(p)) Modifier.clickable { openScore(p) } else Modifier)
+                    .padding(4.dp),
+            ) {
                 Text(if (p.gameStarted(now)) fmt1(p.pointsSoFar(now)) else "–", style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold)
                 Text(p.liveProjection(now)?.let { fmt1(it) } ?: "–", style = MaterialTheme.typography.bodySmall, color = muted)
