@@ -246,6 +246,8 @@ private fun NotificationSettings(a: AlertSettings, onChange: (AlertSettings) -> 
         HorizontalDivider(Modifier.padding(vertical = 8.dp))
         Text("LINEUP", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
         AlertSwitch("Starter ruled out or doubtful", "Before their game starts.", a.injuries) { onChange(a.copy(injuries = it)) }
+        AlertSwitch("Waiver opportunities", "A regular starter is ruled out and his likely fill-in is available.",
+            a.opportunities) { onChange(a.copy(opportunities = it)) }
         AlertSwitch("Lineup check before kickoff", "About an hour before a game if a starter is out, on bye, or a slot is empty.",
             a.lineupReminder) { onChange(a.copy(lineupReminder = it)) }
 

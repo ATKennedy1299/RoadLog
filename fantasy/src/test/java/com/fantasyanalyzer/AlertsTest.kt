@@ -6,6 +6,7 @@ import com.fantasyanalyzer.data.AlertSnapshot
 import com.fantasyanalyzer.data.League
 import com.fantasyanalyzer.data.Matchup
 import com.fantasyanalyzer.data.NflGame
+import com.fantasyanalyzer.data.Opportunities
 import com.fantasyanalyzer.data.Player
 import com.fantasyanalyzer.data.RosterSpot
 import com.fantasyanalyzer.data.Team
@@ -90,6 +91,34 @@ class AlertsTest {
         assertEquals("Check your lineup before kickoff", first.single().title)
         assertTrue(kickoff in snap.reminded)
         assertTrue(step(snap, out, s, now + 60_000).first.none { it.title.startsWith("Check") })
+    }
+
+    @Test
+    fun opportunityWhenAStarterIsRuledOut() {
+        fun rb(id: Long, name: String, status: String, started: Double, proj: Double?, owned: Double = 5.0) =
+            Player(id, name, "RB", "PIT", listOf(2, 20), status, proj, emptyList(), false,
+                percentStarted = started, percentOwned = owned)
+        val starter = rb(30, "Najee Harris", "ACTIVE", 85.0, 14.0)
+        val backup = rb(31, "Jaylen Warren", "ACTIVE", 10.0, 6.0, owned = 30.0)
+        val third = rb(32, "Cordarrelle Patterson", "ACTIVE", 1.0, 2.0)
+        val fas = listOf(backup, third)
+        fun withStarter(p: Player) = rosters(4.0, 5.0).mapValues { (team, r) ->
+            if (team == 2) r + RosterSpot(p, 20) else r
+        }
+        val s = on.copy(playerScored = false, finalResult = false, opportunities = true)
+        val healthy = withStarter(starter)
+        fun look(prev: AlertSnapshot?, r: Map<Int, List<RosterSpot>>) =
+            AlertEngine.alerts(prev, AlertEngine.snapshot(league, r, 1, 10 * hour)!!, s, league, r, 1, 10 * hour, fas)
+        val (_, snap) = look(null, healthy)
+        assertTrue(look(snap, healthy).first.isEmpty())
+
+        val out = withStarter(starter.copy(injuryStatus = "OUT"))
+        val (alerts, snap2) = look(snap, out)
+        val a = alerts.single()
+        assertEquals("Najee Harris is out", a.title)
+        assertTrue(a.text, a.text.startsWith("Jaylen Warren (PIT RB) looks next up"))
+        assertTrue(look(snap2, out).first.isEmpty()) // once per week
+        assertTrue(Opportunities.find(listOf(starter.copy(injuryStatus = "OUT", percentStarted = 20.0)), fas).isEmpty())
     }
 
     @Test

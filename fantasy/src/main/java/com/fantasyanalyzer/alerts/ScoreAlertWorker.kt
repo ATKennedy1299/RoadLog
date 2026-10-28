@@ -96,7 +96,19 @@ class ScoreAlertWorker(context: Context, params: WorkerParameters) : CoroutineWo
             val prev = AlertSnapshot.fromJson(prefs.getString("snapshot", null))
             val cur = AlertEngine.snapshot(league, rosters, myTeam, now)
             if (cur != null) {
-                val (alerts, next) = AlertEngine.alerts(prev, cur, s.alerts, league, rosters, myTeam, now)
+                // Free agents as of the app's last load: no extra requests during games.
+                val freeAgents = if (!s.alerts.opportunities) emptyList() else {
+                    val saved = EspnClient(s.leagueId.toLong(), s.year, cookies, cache = cache, offline = true)
+                    listOf(0, 2, 4, 6).flatMap { slot ->
+                        try {
+                            EspnParser.parseFreeAgents(saved.freeAgents(league.currentScoringPeriod, slot), league.currentScoringPeriod,
+                                pro, emptyMap(), s.year)
+                        } catch (e: EspnException) {
+                            emptyList()
+                        }
+                    }.distinctBy { it.id }
+                }
+                val (alerts, next) = AlertEngine.alerts(prev, cur, s.alerts, league, rosters, myTeam, now, freeAgents)
                 prefs.edit().putString("snapshot", next.toJson()).apply()
                 AlertNotifier.post(applicationContext, alerts)
             }

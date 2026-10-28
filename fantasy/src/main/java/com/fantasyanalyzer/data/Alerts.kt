@@ -23,6 +23,8 @@ data class AlertSettings(
     val injuries: Boolean = false,
     /** About an hour before kickoff if a starter is out, on bye, or a slot is empty. */
     val lineupReminder: Boolean = false,
+    /** A regular starter anywhere is ruled out and his likely fill-in is a free agent. */
+    val opportunities: Boolean = false,
     /** Check every minute during live games (with an ongoing notification) instead of every 15. */
     val instant: Boolean = true,
 )
@@ -41,6 +43,8 @@ data class AlertSnapshot(
     val final: Boolean,
     /** Kickoff times already reminded about. */
     val reminded: Set<Long> = emptySet(),
+    /** Ruled-out starters already alerted as opportunities this week. */
+    val opportunities: Set<Long> = emptySet(),
 ) {
     fun toJson(): String = JSONObject()
         .put("week", week)
@@ -52,6 +56,7 @@ data class AlertSnapshot(
         .put("win", winProbability ?: JSONObject.NULL)
         .put("final", final)
         .put("reminded", JSONArray(reminded.toList()))
+        .put("opportunities", JSONArray(opportunities.toList()))
         .toString()
 
     companion object {
@@ -62,6 +67,7 @@ data class AlertSnapshot(
                 val st = o.getJSONObject("status")
                 val rz = o.getJSONArray("redZone")
                 val rem = o.optJSONArray("reminded") ?: JSONArray()
+                val opps = o.optJSONArray("opportunities") ?: JSONArray()
                 AlertSnapshot(
                     week = o.getInt("week"),
                     points = pts.keys().asSequence().associate { it.toLong() to pts.getDouble(it) },
@@ -72,6 +78,7 @@ data class AlertSnapshot(
                     winProbability = if (o.isNull("win")) null else o.getDouble("win"),
                     final = o.getBoolean("final"),
                     reminded = (0 until rem.length()).map { rem.getLong(it) }.toSet(),
+                    opportunities = (0 until opps.length()).map { opps.getLong(it) }.toSet(),
                 )
             }
         } catch (e: Exception) {
@@ -122,6 +129,7 @@ object AlertEngine {
         rosters: Map<Int, List<RosterSpot>>,
         myTeam: Int,
         now: Long,
+        freeAgents: List<Player> = emptyList(),
     ): Pair<List<GameAlert>, AlertSnapshot> {
         val out = mutableListOf<GameAlert>()
         var next = cur.copy(reminded = prev?.reminded.orEmpty().filter { it > now - 7L * 24 * 60 * 60 * 1000 }.toSet())
@@ -208,6 +216,22 @@ object AlertEngine {
                 }
             }
         }
+        // Opportunities: once per ruled-out starter per week. The first look at a week counts,
+        // since injury news usually lands before any game is played.
+        val opps = Opportunities.find(rosters.values.flatten().map { it.player }, freeAgents)
+        val seen = if (prev?.week == cur.week) prev.opportunities else emptySet()
+        if (settings.opportunities && prev != null) {
+            opps.filter { it.out.id !in seen }.forEach { o ->
+                val n = o.nextUp
+                out += GameAlert(
+                    "opp-${cur.week}-${o.out.id}",
+                    "${o.out.name} is ${o.out.injuryStatus.lowercase().replace('_', ' ')}",
+                    "${n.name} (${n.proTeam} ${n.position}) looks next up and is ${if (n.onWaivers) "on waivers" else "a free agent"}" +
+                        (n.projected?.let { " · proj ${f1(it)}" } ?: ""),
+                )
+            }
+        }
+        next = next.copy(opportunities = seen + opps.map { it.out.id })
         return out to next
     }
 

@@ -2,6 +2,10 @@
 
 package com.fantasyanalyzer.ui
 
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import com.fantasyanalyzer.data.Opportunities
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -121,6 +125,10 @@ internal fun WaiversScreen(d: Dashboard, myTeam: Int?, onPick: (Int) -> Unit, ac
     val ownTeam = d.signedInTeamId == null || d.signedInTeamId == myTeam
     val pool = outlook.freeAgents
     val report = remember(d, myTeam) { Outlook.waivers(outlook, myTeam) }
+    val opportunities = remember(d) {
+        Opportunities.find(outlook.rosters.values.flatten().map { it.player }, pool)
+    }
+    val nextUpFor = opportunities.associate { it.nextUp.id to it.out }
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
 
     Column(Modifier.padding(top = 12.dp)) {
@@ -169,6 +177,33 @@ internal fun WaiversScreen(d: Dashboard, myTeam: Int?, onPick: (Int) -> Unit, ac
                         "Claim $add" + (drop?.let { " · drop $it" } ?: "") + (c.bid?.let { " · $$it" } ?: ""),
                         Modifier.padding(12.dp), style = MaterialTheme.typography.bodyMedium,
                     )
+                }
+            }
+        }
+
+        // Opportunities: a regular starter is out and his likely fill-in is available.
+        if (opportunities.isNotEmpty()) {
+            PanelLabel("OPPORTUNITIES", "Starters ruled out this week, and the available teammate ESPN projects highest.")
+            Panel {
+                opportunities.forEachIndexed { i, o ->
+                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    Row(Modifier.fillMaxWidth().clickable { open(o.nextUp) }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        PlayerPhoto(o.nextUp, 40.dp, Modifier.padding(end = 10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("${o.nextUp.name} · ${o.nextUp.proTeam} ${o.nextUp.position}", fontWeight = FontWeight.SemiBold,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(
+                                buildAnnotatedString {
+                                    append("Next up for ${o.out.name} ")
+                                    withStyle(SpanStyle(color = Bad, fontWeight = FontWeight.Bold)) { append(o.out.statusText() ?: "OUT") }
+                                },
+                                style = MaterialTheme.typography.bodySmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                        Text(o.nextUp.projected?.let { fmt1(it) } ?: "–", fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(horizontal = 8.dp))
+                        AddButton(enabled = ownTeam) { adding = o.nextUp to null }
+                    }
                 }
             }
         }
@@ -269,7 +304,7 @@ internal fun WaiversScreen(d: Dashboard, myTeam: Int?, onPick: (Int) -> Unit, ac
             }
             list.forEach { p ->
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                AvailableRow(p, now, ownTeam, onOpen = { open(p) }) { adding = p to null }
+                AvailableRow(p, now, ownTeam, nextUpFor[p.id], onOpen = { open(p) }) { adding = p to null }
             }
         }
         Text(
@@ -352,7 +387,7 @@ private fun TrendingCard(p: Player, enabled: Boolean, onOpen: () -> Unit, onAdd:
 }
 
 @Composable
-private fun AvailableRow(p: Player, now: Long, enabled: Boolean, onOpen: () -> Unit, onAdd: () -> Unit) {
+private fun AvailableRow(p: Player, now: Long, enabled: Boolean, nextUpFor: Player?, onOpen: () -> Unit, onAdd: () -> Unit) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
         Row(Modifier.weight(1f).clickable(onClick = onOpen).padding(start = 10.dp, top = 10.dp, bottom = 10.dp),
@@ -377,6 +412,10 @@ private fun AvailableRow(p: Player, now: Long, enabled: Boolean, onOpen: () -> U
                 }
                 Text(gameLine(p, now, muted), style = MaterialTheme.typography.labelSmall, color = muted,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
+                nextUpFor?.let {
+                    Text("NEXT UP for ${shortName(it.name)}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                        color = Good, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
                 FormTag(p)
             }
         }

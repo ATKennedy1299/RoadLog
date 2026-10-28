@@ -29,6 +29,7 @@ class SettingsStore(context: Context) {
                 injuries = prefs.getBoolean("alert_injuries", d.injuries),
                 lineupReminder = prefs.getBoolean("alert_reminder", d.lineupReminder),
                 instant = prefs.getBoolean("alert_instant", d.instant),
+                opportunities = prefs.getBoolean("alert_opportunity", d.opportunities),
             )
         },
     )
@@ -52,6 +53,7 @@ class SettingsStore(context: Context) {
             .putBoolean("alert_injuries", s.alerts.injuries)
             .putBoolean("alert_reminder", s.alerts.lineupReminder)
             .putBoolean("alert_instant", s.alerts.instant)
+            .putBoolean("alert_opportunity", s.alerts.opportunities)
             .apply()
     }
 
