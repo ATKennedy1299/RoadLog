@@ -88,31 +88,38 @@ class EspnClient(
     }
 
     /** One player's whole season, week by week (ESPN's player card data). */
-    fun playerCard(playerId: Long): JSONObject = cached("card2-$playerId", reuseFor = THIRTY_MINUTES) {
-        get(
-            listOf("view" to "kona_playercard"),
-            filter = """{"players":{"filterIds":{"value":[$playerId]},""" +
-                """"filterStatsForTopScoringPeriodIds":{"value":18,"additionalValue":["00$year","10$year"]}}}""",
-        )
+    fun playerCard(playerId: Long): JSONObject = cached("card3-$playerId", reuseFor = THIRTY_MINUTES) {
+        cards(listOf(playerId))
     }
 
     /** Rostered players' seasons so far, week by week, in one request. Refreshed every few hours. */
-    fun seasonStats(week: Int, playerIds: Collection<Long>): JSONObject = cached("season-$week", reuseFor = SIX_HOURS) {
-        get(
-            listOf("view" to "kona_playercard"),
-            filter = """{"players":{"filterIds":{"value":[${playerIds.sorted().joinToString(",")}]},""" +
-                """"filterStatsForTopScoringPeriodIds":{"value":18,"additionalValue":["00$year","10$year"]}}}""",
-        )
+    fun seasonStats(week: Int, playerIds: Collection<Long>): JSONObject = cached("season2-$week", reuseFor = SIX_HOURS) {
+        cards(playerIds.sorted())
     }
 
+    /**
+     * Player cards with every week's actual points and ESPN projection named
+     * explicitly: the "top scoring periods" filter alone returns actuals but
+     * not past weeks' projections, which the season form needs.
+     */
+    private fun cards(ids: List<Long>): JSONObject = get(
+        listOf("view" to "kona_playercard"),
+        filter = """{"players":{"filterIds":{"value":[${ids.joinToString(",")}]},"limit":${ids.size.coerceAtLeast(1)},""" +
+            """"filterStatsForTopScoringPeriodIds":{"value":18,"additionalValue":[${seasonStatIds(18)}]}}}""",
+    )
+
+    /** ESPN stat set ids (source + split + season + week): season totals, then each week's actual and projection. */
+    private fun seasonStatIds(throughWeek: Int): String =
+        (listOf("00$year", "10$year") + (1..throughWeek).flatMap { listOf("01$year$it", "11$year$it") })
+            .joinToString(",") { "\"$it\"" }
+
     /** Free agents and waiver players who can fill [slotId], most-owned first. */
-    fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = cached("fa3-$week-$slotId") { freeAgentsNet(week, slotId, limit) }
+    fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = cached("fa4-$week-$slotId") { freeAgentsNet(week, slotId, limit) }
 
     private fun freeAgentsNet(week: Int, slotId: Int, limit: Int): JSONObject {
         // ESPN stat set ids are source + split + season (+ week): every week's actual
         // ("01") and projection ("11") so far, for the season form, and season totals.
-        val faStatIds = (listOf("00$year", "10$year") +
-            (1..week).flatMap { listOf("01$year$it", "11$year$it") }).joinToString(",") { "\"$it\"" }
+        val faStatIds = seasonStatIds(week)
         return get(
             listOf("view" to "kona_player_info", "scoringPeriodId" to week.toString()),
             filter = """{"players":{"filterStatus":{"value":["FREEAGENT","WAIVERS"]},""" +

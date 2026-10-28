@@ -233,7 +233,15 @@ fun PlayerSheet(p: Player, d: Dashboard, weeks: Map<Int, com.fantasyanalyzer.dat
             p.statLine?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 
             val seasonWeeks = weeks ?: d.data.outlook?.seasons?.get(p.id)
-            seasonWeeks?.let { SeasonForm.of(it, d.league.currentScoringPeriod) }?.let { SeasonFormSection(it) }
+            val form = seasonWeeks?.let { SeasonForm.of(it, d.league.currentScoringPeriod) }
+            when {
+                form != null -> SeasonFormSection(form)
+                seasonWeeks != null -> {
+                    SectionTitle("Season form")
+                    Text("No finished weeks with an ESPN projection to compare yet.", style = MaterialTheme.typography.bodySmall,
+                        color = muted)
+                }
+            }
 
             // The whole season, ESPN game-log style, with how tough each opponent is for this position.
             val rows = seasonSchedule(d, p, weeks.orEmpty())
