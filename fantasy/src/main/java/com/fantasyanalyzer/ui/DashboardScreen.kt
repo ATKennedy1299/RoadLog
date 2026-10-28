@@ -2,6 +2,13 @@
 
 package com.fantasyanalyzer.ui
 
+import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.size
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -244,7 +251,7 @@ private fun Tabs(
                     3 -> item(key = "waivers") { WaiversScreen(d, myTeam, onSetMyTeam, waiverActions) }
                     4 -> playoffsTab(d, myTeam)
                     5 -> powerTab(d)
-                    6 -> luckTab(d)
+                    6 -> luckTab(d, myTeam)
                     7 -> lineupsTab(d)
                     8 -> scoringTab(d)
                     9 -> headToHeadTab(d)
@@ -432,10 +439,13 @@ private fun LazyListScope.powerTab(d: Dashboard) {
 
 // --- Luck ---------------------------------------------------------------------------
 
-private fun LazyListScope.luckTab(d: Dashboard) {
+private fun LazyListScope.luckTab(d: Dashboard, myTeam: Int?) {
     val rows = d.standings.sortedByDescending { it.luck }
     val maxAbs = rows.maxOf { kotlin.math.abs(it.luck) }
     item {
+        SectionTitle("Points for vs. against", "Right scores more, lower gives up less. Dashed lines are league averages. Tap a team.")
+        Panel { PointsChart(d, myTeam) }
+
         SectionTitle("Wins above expected", "Actual wins minus the wins your weekly scores would earn on average.")
         Panel {
             Spacer(Modifier.height(6.dp))
@@ -697,6 +707,92 @@ private fun GameRow(d: Dashboard, g: TeamGame, showMargin: Boolean) {
             Text("by ${fmt1(kotlin.math.abs(g.margin))}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
         } else {
             ResultBadge(g.result)
+        }
+    }
+}
+
+/**
+ * Every team as its logo: points scored across, points allowed up. The average
+ * lines split it into good/bad (scoring) and lucky/unlucky (what opponents scored).
+ */
+@Composable
+private fun PointsChart(d: Dashboard, myTeam: Int?) {
+    val rows = d.standings
+    var selected by remember(myTeam) { mutableStateOf(myTeam ?: rows.first().teamId) }
+    val pfLo = rows.minOf { it.pointsFor }
+    val pfHi = rows.maxOf { it.pointsFor }
+    val paLo = rows.minOf { it.pointsAgainst }
+    val paHi = rows.maxOf { it.pointsAgainst }
+    val pfAvg = rows.map { it.pointsFor }.average()
+    val paAvg = rows.map { it.pointsAgainst }.average()
+    // 0..1 within the league's range, padded so logos don't sit on the edges.
+    fun x(v: Double) = if (pfHi > pfLo) (0.08 + 0.84 * (v - pfLo) / (pfHi - pfLo)).toFloat() else 0.5f
+    fun y(v: Double) = if (paHi > paLo) (0.92 - 0.84 * (v - paLo) / (paHi - paLo)).toFloat() else 0.5f
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val line = MaterialTheme.colorScheme.outline
+    val logo = 30.dp
+
+    Column(Modifier.padding(12.dp)) {
+        BoxWithConstraints(Modifier.fillMaxWidth().height(300.dp)) {
+            val w = maxWidth
+            val h = maxHeight
+            Canvas(Modifier.matchParentSize()) {
+                val dash = PathEffect.dashPathEffect(floatArrayOf(10f, 8f))
+                val ax = size.width * x(pfAvg)
+                val ay = size.height * y(paAvg)
+                drawLine(line, Offset(ax, 0f), Offset(ax, size.height), 1.5.dp.toPx(), pathEffect = dash)
+                drawLine(line, Offset(0f, ay), Offset(size.width, ay), 1.5.dp.toPx(), pathEffect = dash)
+            }
+            // Quadrant names in the corners.
+            val label = MaterialTheme.typography.labelSmall
+            Text("Bad & unlucky", Modifier.align(Alignment.TopStart), style = label, color = Bad.copy(alpha = 0.8f))
+            Text("Good & unlucky", Modifier.align(Alignment.TopEnd), style = label, color = Warn)
+            Text("Bad & lucky", Modifier.align(Alignment.BottomStart), style = label, color = Warn)
+            Text("Good & lucky", Modifier.align(Alignment.BottomEnd), style = label, color = Good)
+            rows.forEach { r ->
+                val mine = r.teamId == myTeam
+                val chosen = r.teamId == selected
+                val dot = if (chosen) logo + 8.dp else logo
+                Box(
+                    Modifier
+                        .offset(
+                            x = (w * x(r.pointsFor) - dot / 2).coerceIn(0.dp, w - dot),
+                            y = (h * y(r.pointsAgainst) - dot / 2).coerceIn(0.dp, h - dot),
+                        )
+                        .size(dot)
+                        .clip(CircleShape)
+                        .border(
+                            if (chosen || mine) 2.dp else 0.dp,
+                            if (mine) MaterialTheme.colorScheme.primary else if (chosen) MaterialTheme.colorScheme.onSurface else Color.Transparent,
+                            CircleShape,
+                        )
+                        .clickable { selected = r.teamId },
+                ) {
+                    TeamLogo(d.logo(r.teamId), d.abbrev(r.teamId), dot, shape = CircleShape)
+                }
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("← fewer points scored", style = MaterialTheme.typography.labelSmall, color = muted)
+            Text("more →", style = MaterialTheme.typography.labelSmall, color = muted)
+        }
+        rows.firstOrNull { it.teamId == selected }?.let { r ->
+            HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outlineVariant)
+            val good = r.pointsFor >= pfAvg
+            val lucky = r.pointsAgainst <= paAvg
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                TeamCell(r.team, d.logo(r.teamId), "${r.record} · ${if (good) "Good" else "Bad"} & ${if (lucky) "lucky" else "unlucky"}",
+                    Modifier.weight(1f))
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("${fmt1(r.pointsFor)} PF", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium,
+                        color = if (good) Good else Bad)
+                    Text("${fmt1(r.pointsAgainst)} PA", style = MaterialTheme.typography.bodySmall, color = if (lucky) Good else Bad)
+                }
+            }
+            Text(
+                "League average ${fmt1(pfAvg)} PF · ${fmt1(paAvg)} PA",
+                Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelSmall, color = muted,
+            )
         }
     }
 }
