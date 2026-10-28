@@ -259,6 +259,8 @@ data class WeekOutlook(
     val week: Int,
     val rosters: Map<Int, List<RosterSpot>>,
     val freeAgents: List<Player>,
+    /** Player id -> his season so far, week by week (rostered players and free agents). */
+    val seasons: Map<Long, Map<Int, WeekLine>> = emptyMap(),
 )
 
 data class LeagueData(

@@ -377,6 +377,7 @@ private fun AvailableRow(p: Player, now: Long, enabled: Boolean, onOpen: () -> U
                 }
                 Text(gameLine(p, now, muted), style = MaterialTheme.typography.labelSmall, color = muted,
                     maxLines = 1, overflow = TextOverflow.Ellipsis)
+                FormTag(p)
             }
         }
         Box(Modifier.width(56.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainerHigh),

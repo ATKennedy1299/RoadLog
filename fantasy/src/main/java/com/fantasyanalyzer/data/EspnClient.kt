@@ -96,14 +96,23 @@ class EspnClient(
         )
     }
 
+    /** Rostered players' seasons so far, week by week, in one request. Refreshed every few hours. */
+    fun seasonStats(week: Int, playerIds: Collection<Long>): JSONObject = cached("season-$week", reuseFor = SIX_HOURS) {
+        get(
+            listOf("view" to "kona_playercard"),
+            filter = """{"players":{"filterIds":{"value":[${playerIds.sorted().joinToString(",")}]},""" +
+                """"filterStatsForTopScoringPeriodIds":{"value":18,"additionalValue":["00$year","10$year"]}}}""",
+        )
+    }
+
     /** Free agents and waiver players who can fill [slotId], most-owned first. */
-    fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = cached("fa2-$week-$slotId") { freeAgentsNet(week, slotId, limit) }
+    fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = cached("fa3-$week-$slotId") { freeAgentsNet(week, slotId, limit) }
 
     private fun freeAgentsNet(week: Int, slotId: Int, limit: Int): JSONObject {
-        // ESPN stat set ids are source + split + season (+ week): this week's actual
-        // ("01") and projection ("11"), the last three weeks' actuals, and season totals.
-        val faStatIds = (listOf("00$year", "10$year", "11$year$week") +
-            (week - 3..week).filter { it > 0 }.map { "01$year$it" }).joinToString(",") { "\"$it\"" }
+        // ESPN stat set ids are source + split + season (+ week): every week's actual
+        // ("01") and projection ("11") so far, for the season form, and season totals.
+        val faStatIds = (listOf("00$year", "10$year") +
+            (1..week).flatMap { listOf("01$year$it", "11$year$it") }).joinToString(",") { "\"$it\"" }
         return get(
             listOf("view" to "kona_player_info", "scoringPeriodId" to week.toString()),
             filter = """{"players":{"filterStatus":{"value":["FREEAGENT","WAIVERS"]},""" +
@@ -214,7 +223,13 @@ class EspnClient(
                     emptyList()
                 }
             }.distinctBy { it.id }.map { p -> scoreboard[p.proTeam]?.let { p.copy(game = it) } ?: p }
-            WeekOutlook(week, rosters, freeAgents) to scoreboard
+            onProgress("Loading season form…")
+            val rostered = rosters.values.flatten().map { it.player.id }
+            val seasons = optional(emptyMap()) { EspnParser.parseSeasons(seasonStats(week, rostered), year) } +
+                positionSlots.flatMap { slot -> optional(emptyMap<Long, Map<Int, WeekLine>>()) {
+                    EspnParser.parseSeasons(freeAgents(week, slot), year)
+                }.entries }.associate { it.key to it.value }
+            WeekOutlook(week, rosters, freeAgents, seasons) to scoreboard
         } catch (e: EspnException) {
             null
         }

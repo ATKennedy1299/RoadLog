@@ -396,6 +396,7 @@ private fun RosterLine(spot: RosterSpot, originalSlot: Int, locked: Boolean, now
                 p.statLine?.let {
                     Text(it, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+                FormTag(p)
             }
             val openScore = LocalOpenScore.current
             Column(

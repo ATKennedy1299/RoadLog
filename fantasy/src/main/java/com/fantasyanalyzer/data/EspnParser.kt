@@ -281,6 +281,17 @@ object EspnParser {
         val entry = raw.optJSONArray("players").objects().firstOrNull {
             it.optLong("id", -1) == playerId || it.optJSONObject("player")?.optLong("id", -1) == playerId
         } ?: return emptyMap()
+        return entryWeeks(entry, season)
+    }
+
+    /** Every player in a player list response (card or free agents): id -> week by week. */
+    fun parseSeasons(raw: JSONObject, season: Int? = null): Map<Long, Map<Int, WeekLine>> =
+        raw.optJSONArray("players").objects().mapNotNull { e ->
+            val id = e.optJSONObject("player")?.optLong("id", 0)?.takeIf { it != 0L } ?: e.optLong("id", 0)
+            entryWeeks(e, season).takeIf { it.isNotEmpty() }?.let { id to it }
+        }.toMap()
+
+    private fun entryWeeks(entry: JSONObject, season: Int?): Map<Int, WeekLine> {
         val player = entry.optJSONObject("player") ?: return emptyMap()
         val position = POSITIONS[player.optInt("defaultPositionId", -1)]
         val stats = weekly(player.optJSONArray("stats").objects(), season)

@@ -52,6 +52,8 @@ import com.fantasyanalyzer.analysis.fmt1
 import com.fantasyanalyzer.data.NflGame
 import com.fantasyanalyzer.data.POSITIONS
 import com.fantasyanalyzer.data.Player
+import com.fantasyanalyzer.data.ScoringStyle
+import com.fantasyanalyzer.data.SeasonForm
 import com.fantasyanalyzer.data.nflLogoUrl
 import com.fantasyanalyzer.data.photoUrl
 import java.time.Instant
@@ -229,6 +231,9 @@ fun PlayerSheet(p: Player, d: Dashboard, weeks: Map<Int, com.fantasyanalyzer.dat
                 }
             }
             p.statLine?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+
+            val seasonWeeks = weeks ?: d.data.outlook?.seasons?.get(p.id)
+            seasonWeeks?.let { SeasonForm.of(it, d.league.currentScoringPeriod) }?.let { SeasonFormSection(it) }
 
             // The whole season, ESPN game-log style, with how tough each opponent is for this position.
             val rows = seasonSchedule(d, p, weeks.orEmpty())
@@ -436,3 +441,57 @@ private fun BreakdownRow(label: String, per: String, count: String, score: Strin
 /** 0.1, 1, 34, -2: no trailing ".0" on whole numbers. */
 private fun trim(v: Double): String =
     if (v == Math.rint(v)) v.toLong().toString() else String.format(Locale.US, "%.2f", v).trimEnd('0').trimEnd('.')
+
+/** Player id -> season form, for the rows that show it. */
+val LocalSeasonForms = staticCompositionLocalOf<Map<Long, SeasonForm>> { emptyMap() }
+
+/** "Beat proj 5/6 · Steady" under a player's name; nothing until he has a finished week. */
+@Composable
+fun FormTag(p: Player) {
+    val form = LocalSeasonForms.current[p.id] ?: return
+    val share = form.beat.toDouble() / form.games
+    Text(
+        buildAnnotatedString {
+            withStyle(SpanStyle(color = when { share >= 0.6 -> Good; share <= 0.4 -> Bad; else -> MaterialTheme.colorScheme.onSurfaceVariant },
+                fontWeight = FontWeight.SemiBold)) { append("Beat proj ${form.beat}/${form.games}") }
+            form.style?.let { st ->
+                withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) { append(" · ") }
+                withStyle(SpanStyle(color = if (st == ScoringStyle.STEADY) Good else Warn, fontWeight = FontWeight.SemiBold)) {
+                    append(st.label)
+                }
+            }
+        },
+        style = MaterialTheme.typography.labelSmall, maxLines = 1,
+    )
+}
+
+/** Player sheet section: a hit/miss dot per week, the beat record, and floor / typical / ceiling. */
+@Composable
+private fun SeasonFormSection(form: SeasonForm) {
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    SectionTitle("Season form", "Weeks he beat ESPN's projection, and his range once he has ${SeasonForm.MIN_GAMES}+ games.")
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text("Beat projection ${form.beat} of ${form.games}", style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+        form.results.forEach { hit ->
+            Box(Modifier.padding(start = 3.dp).size(10.dp).clip(CircleShape).background(if (hit) Good else Bad.copy(alpha = 0.7f)))
+        }
+    }
+    form.range?.let { r ->
+        Row(Modifier.padding(top = 6.dp)) {
+            listOf("Floor" to r.floor, "Typical" to r.typical, "Ceiling" to r.ceiling).forEach { (label, v) ->
+                Column(Modifier.weight(1f)) {
+                    Text(label, style = MaterialTheme.typography.labelMedium, color = muted)
+                    Text(fmt1(v), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                }
+            }
+            form.style?.let { st ->
+                Column(Modifier.weight(1f)) {
+                    Text("Style", style = MaterialTheme.typography.labelMedium, color = muted)
+                    Text(st.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+                        color = if (st == ScoringStyle.STEADY) Good else Warn)
+                }
+            }
+        }
+    } ?: Text("Range shows after ${SeasonForm.MIN_GAMES} games.", style = MaterialTheme.typography.bodySmall, color = muted)
+}

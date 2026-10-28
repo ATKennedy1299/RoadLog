@@ -63,6 +63,7 @@ import com.fantasyanalyzer.analysis.RECENT_WEEKS
 import com.fantasyanalyzer.analysis.TeamGame
 import com.fantasyanalyzer.analysis.fmt1
 import com.fantasyanalyzer.data.Player
+import com.fantasyanalyzer.data.SeasonForm
 import com.fantasyanalyzer.data.Settings
 import androidx.compose.foundation.background
 import androidx.compose.material3.TextButton
@@ -219,11 +220,15 @@ private fun Tabs(
         LaunchedEffect(p.id) { onRequestPlayer(p.id) }
         PlayerSheet(p, d, playerWeeks[p.id]) { sheetPlayer = null }
     }
+    val forms = remember(d.data.outlook?.seasons, d.league.currentScoringPeriod) {
+        d.data.outlook?.seasons.orEmpty().mapNotNull { (id, w) -> SeasonForm.of(w, d.league.currentScoringPeriod)?.let { id to it } }.toMap()
+    }
     var scorePlayer by remember { mutableStateOf<Player?>(null) }
     scorePlayer?.let { p -> ScoreBreakdownDialog(p, d.league.scoring) { scorePlayer = null } }
     CompositionLocalProvider(
         LocalOpenPlayer provides { p: Player -> sheetPlayer = p },
         LocalOpenScore provides { p: Player -> scorePlayer = p },
+        LocalSeasonForms provides forms,
     ) {
         Column {
             ScrollableTabRow(selectedTabIndex = tab, edgePadding = 8.dp) {
