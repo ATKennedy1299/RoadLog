@@ -2,6 +2,9 @@ package com.fantasyanalyzer.ui
 
 import android.os.Build
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.unit.sp
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -54,6 +57,7 @@ import com.fantasyanalyzer.analysis.Matrix
 
 val Good = Color(0xFF2E7D32)
 val Bad = Color(0xFFC62828)
+val Warn = Color(0xFFEF6C00)
 
 /** Charcoal greys and ESPN-style blue: background darkest, rows a step lighter, cards lighter still. */
 private val EspnDark = darkColorScheme(
@@ -94,22 +98,54 @@ fun FantasyTheme(content: @Composable () -> Unit) {
 @Composable
 fun SectionTitle(text: String, subtitle: String? = null) {
     Column(Modifier.padding(top = 20.dp, bottom = 8.dp)) {
-        Text(text, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+        Text(text.uppercase(), style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
+            letterSpacing = 0.6.sp)
         if (subtitle != null) {
             Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
+/** A rounded, slightly raised group of rows, like the Matchup lineups. */
+@Composable
+fun Panel(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    Column(
+        modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
+    ) { content() }
+}
+
+/** Hairline between rows inside a [Panel]. */
+@Composable
+fun PanelDivider() {
+    HorizontalDivider(Modifier.padding(horizontal = 12.dp), color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+}
+
+/** Column headings inside a [Panel], ESPN style: small, bold, uppercase. */
+@Composable
+fun PanelHeading(text: String, modifier: Modifier = Modifier, align: TextAlign = TextAlign.Start) {
+    Text(text.uppercase(), modifier, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = align, maxLines = 1)
+}
+
 /** Horizontal bar scaled to [fraction] of the available width. */
 @Composable
-fun BarRow(label: String, fraction: Float, valueText: String, color: Color = MaterialTheme.colorScheme.primary, leading: String? = null) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+fun BarRow(
+    label: String,
+    fraction: Float,
+    valueText: String,
+    color: Color = MaterialTheme.colorScheme.primary,
+    leading: String? = null,
+    logo: String? = null,
+) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
         if (leading != null) {
             Text(leading, Modifier.width(28.dp), style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        Text(label, Modifier.width(128.dp), style = MaterialTheme.typography.bodySmall, maxLines = 1,
+        if (logo != null || leading != null) TeamLogo(logo, label, 24.dp, Modifier.padding(end = 8.dp), CircleShape)
+        Text(label, Modifier.width(112.dp), style = MaterialTheme.typography.bodySmall, maxLines = 1,
             overflow = TextOverflow.Ellipsis)
         Box(Modifier.weight(1f).height(18.dp)) {
             Box(
@@ -123,10 +159,11 @@ fun BarRow(label: String, fraction: Float, valueText: String, color: Color = Mat
 
 /** Bar that grows right (green) for positive values and left (red) for negative ones. */
 @Composable
-fun DivergingBarRow(label: String, value: Double, maxAbs: Double, valueText: String) {
+fun DivergingBarRow(label: String, value: Double, maxAbs: Double, valueText: String, logo: String? = null) {
     val frac = if (maxAbs > 0) (kotlin.math.abs(value) / maxAbs).toFloat().coerceIn(0.02f, 1f) else 0.02f
-    Row(Modifier.fillMaxWidth().padding(vertical = 3.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, Modifier.width(128.dp), style = MaterialTheme.typography.bodySmall, maxLines = 1,
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+        TeamLogo(logo, label, 24.dp, Modifier.padding(end = 8.dp), CircleShape)
+        Text(label, Modifier.width(112.dp), style = MaterialTheme.typography.bodySmall, maxLines = 1,
             overflow = TextOverflow.Ellipsis)
         Row(Modifier.weight(1f).height(18.dp)) {
             Box(Modifier.weight(1f).fillMaxHeight(), contentAlignment = Alignment.CenterEnd) {

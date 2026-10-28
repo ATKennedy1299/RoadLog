@@ -1,5 +1,14 @@
 package com.fantasyanalyzer.ui
 
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -44,7 +53,6 @@ import com.fantasyanalyzer.data.Player
 import com.fantasyanalyzer.data.slotName
 import java.util.Locale
 
-private val Warn = Color(0xFFEF6C00)
 
 /** Percent for odds: never claims 100% or 0% unless every simulation agreed. */
 internal fun pct(p: Double): String = when {
@@ -123,37 +131,43 @@ internal fun LazyListScope.playoffsTab(d: Dashboard, myTeam: Int?) {
                 (if (odds.byes > 0) ", top ${odds.byes} get byes" else "") +
                 " · ${odds.gamesLeft} regular-season games left · ${"%,d".format(odds.simulations)} simulated seasons",
         )
-        odds.rows.firstOrNull { it.teamId == myTeam }?.let { mine -> MyOddsCard(mine, odds.byes > 0) }
-    }
-    item {
-        Row(Modifier.padding(top = 16.dp, bottom = 4.dp)) {
-            Text("Team", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
-            listOfNotNull("Proj W", "Playoffs", if (odds.byes > 0) "Bye" else null, "Title").forEach {
-                Text(it, Modifier.width(62.dp), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.End)
-            }
-        }
-        HorizontalDivider()
-    }
-    items(odds.rows, key = { "odds${it.teamId}" }) { r ->
-        val mine = r.teamId == myTeam
-        Column(Modifier.padding(vertical = 6.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(r.team, fontWeight = if (mine) FontWeight.Bold else FontWeight.Normal,
-                        style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(r.record.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        odds.rows.firstOrNull { it.teamId == myTeam }?.let { mine -> MyOddsCard(d, mine, odds.byes > 0) }
+        Panel(Modifier.padding(top = 12.dp)) {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                PanelHeading("Team", Modifier.weight(1f))
+                listOfNotNull("Proj W", "Playoffs", if (odds.byes > 0) "Bye" else null, "Title").forEach {
+                    PanelHeading(it, Modifier.width(58.dp), TextAlign.End)
                 }
-                OddsCell(fmt1(r.projectedWins))
-                OddsCell(pct(r.playoffPct), oddsColor(r.playoffPct))
-                if (odds.byes > 0) OddsCell(pct(r.byePct))
-                OddsCell(r.champPct?.let { pct(it) } ?: "—")
             }
-            LinearProgressIndicator(
-                progress = { r.playoffPct.toFloat() },
-                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                color = oddsColor(r.playoffPct),
-            )
+            PanelDivider()
+            odds.rows.forEachIndexed { i, r ->
+                if (i > 0) PanelDivider()
+                val mine = r.teamId == myTeam
+                Column(
+                    Modifier.background(if (mine) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f) else Color.Transparent)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                            TeamLogo(d.league.teams[r.teamId]?.logo?.ifBlank { null }, r.team, 28.dp, Modifier.padding(end = 8.dp), CircleShape)
+                            Column {
+                                Text(r.team, fontWeight = if (mine) FontWeight.Bold else FontWeight.SemiBold,
+                                    style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(r.record.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        OddsCell(fmt1(r.projectedWins))
+                        OddsCell(pct(r.playoffPct), oddsColor(r.playoffPct), bold = true)
+                        if (odds.byes > 0) OddsCell(pct(r.byePct))
+                        OddsCell(r.champPct?.let { pct(it) } ?: "—")
+                    }
+                    LinearProgressIndicator(
+                        progress = { r.playoffPct.toFloat() },
+                        modifier = Modifier.fillMaxWidth().padding(start = 36.dp, top = 6.dp).clip(RoundedCornerShape(4.dp)),
+                        color = oddsColor(r.playoffPct),
+                    )
+                }
+            }
         }
     }
     scheduleSection(d, myTeam)
@@ -165,7 +179,7 @@ internal fun LazyListScope.playoffsTab(d: Dashboard, myTeam: Int?) {
                 "; ESPN's exact tiebreakers may differ in close races." +
                 (if (odds.rows.any { it.champPct == null }) " Title odds are hidden once the playoffs start." else ""),
             Modifier.padding(top = 16.dp),
-            style = MaterialTheme.typography.bodySmall,
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -190,17 +204,22 @@ private fun LazyListScope.scheduleSection(d: Dashboard, myTeam: Int?) {
                 modifier = Modifier.padding(bottom = 8.dp),
             )
         }
-    }
-    items(rows, key = { "sos${it.teamId}" }) { r ->
-        // Bar spans the league's range so differences are visible; the hardest schedule is full width.
-        val frac = if (hi > lo) (0.15 + 0.85 * (r.remainingOppAvg!! - lo) / (hi - lo)).toFloat() else 0.5f
-        BarRow(
-            label = r.team,
-            fraction = frac,
-            valueText = "${fmt1(r.averageTeamWins)}/${r.opponents.size}",
-            color = if (r.teamId == myTeam) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
-            leading = "#${r.rank}",
-        )
+        Panel {
+            Spacer(Modifier.height(6.dp))
+            rows.forEach { r ->
+                // Bar spans the league's range so differences are visible; the hardest schedule is full width.
+                val frac = if (hi > lo) (0.15 + 0.85 * (r.remainingOppAvg!! - lo) / (hi - lo)).toFloat() else 0.5f
+                BarRow(
+                    label = r.team,
+                    fraction = frac,
+                    valueText = "${fmt1(r.averageTeamWins)}/${r.opponents.size}",
+                    color = if (r.teamId == myTeam) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary,
+                    leading = "#${r.rank}",
+                    logo = d.league.teams[r.teamId]?.logo?.ifBlank { null },
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+        }
     }
 }
 
@@ -212,29 +231,39 @@ private fun oddsColor(p: Double): Color = when {
 }
 
 @Composable
-private fun OddsCell(text: String, color: Color = Color.Unspecified) {
-    Text(text, Modifier.width(62.dp), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.End, color = color)
+private fun OddsCell(text: String, color: Color = Color.Unspecified, bold: Boolean = false) {
+    Text(text, Modifier.width(58.dp), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.End, color = color,
+        fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal)
 }
 
 @Composable
-private fun MyOddsCard(r: PlayoffOddsRow, hasByes: Boolean) {
-    Card(Modifier.fillMaxWidth()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(r.team, style = MaterialTheme.typography.labelMedium)
-            Text("${pct(r.playoffPct)} to make the playoffs", style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold, color = oddsColor(r.playoffPct))
-            val extras = listOfNotNull(
-                if (hasByes) "${pct(r.byePct)} bye" else null,
-                r.champPct?.let { "${pct(it)} title" },
-                if (!r.avgSeed.isNaN()) "avg seed ${fmt1(r.avgSeed)}" else null,
-                "${fmt1(r.projectedWins)} projected wins",
-            )
-            Text(extras.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
-            if (r.ifWinNext != null && r.ifLoseNext != null) {
-                Text(
-                    "Next game: win → ${pct(r.ifWinNext)}, lose → ${pct(r.ifLoseNext)}",
-                    style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+private fun MyOddsCard(d: Dashboard, r: PlayoffOddsRow, hasByes: Boolean) {
+    Panel {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            TeamLogo(d.league.teams[r.teamId]?.logo?.ifBlank { null }, r.team, 48.dp, Modifier.padding(end = 14.dp), CircleShape)
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                PanelHeading(r.team)
+                Text("${pct(r.playoffPct)} to make the playoffs", style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold, color = oddsColor(r.playoffPct))
+                val extras = listOfNotNull(
+                    if (hasByes) "${pct(r.byePct)} bye" else null,
+                    r.champPct?.let { "${pct(it)} title" },
+                    if (!r.avgSeed.isNaN()) "avg seed ${fmt1(r.avgSeed)}" else null,
+                    "${fmt1(r.projectedWins)} projected wins",
                 )
+                Text(extras.joinToString(" · "), style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (r.ifWinNext != null && r.ifLoseNext != null) {
+                    Text(
+                        buildAnnotatedString {
+                            append("Next game: win → ")
+                            withStyle(SpanStyle(color = Good, fontWeight = FontWeight.Bold)) { append(pct(r.ifWinNext)) }
+                            append(", lose → ")
+                            withStyle(SpanStyle(color = Bad, fontWeight = FontWeight.Bold)) { append(pct(r.ifLoseNext)) }
+                        },
+                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 4.dp),
+                    )
+                }
             }
         }
     }

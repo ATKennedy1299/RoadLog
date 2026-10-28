@@ -2,6 +2,10 @@
 
 package com.fantasyanalyzer.ui
 
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -260,6 +264,42 @@ private fun freshness(fetchedAt: Long): String {
 
 private fun signed(d: Double) = String.format(Locale.US, "%+.1f", d)
 
+// --- Shared -----------------------------------------------------------------------
+
+private fun Dashboard.logo(teamId: Int): String? = league.teams[teamId]?.logo?.ifBlank { null }
+
+private fun Dashboard.logoByName(name: String): String? =
+    league.teams.values.firstOrNull { it.name == name }?.logo?.ifBlank { null }
+
+private fun Dashboard.abbrev(teamId: Int): String =
+    league.teams[teamId]?.abbrev?.ifBlank { null } ?: league.teamName(teamId).take(4)
+
+/** Team logo, name and an optional second line, the way every team row starts. */
+@Composable
+private fun TeamCell(name: String, logo: String?, sub: String? = null, modifier: Modifier = Modifier, bold: Boolean = true) {
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        TeamLogo(logo, name, 32.dp, Modifier.padding(end = 10.dp), CircleShape)
+        Column {
+            Text(name, style = MaterialTheme.typography.bodyMedium, fontWeight = if (bold) FontWeight.SemiBold else FontWeight.Normal,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (!sub.isNullOrBlank()) {
+                Text(sub, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+    }
+}
+
+/** Abbreviation key under a team-by-team grid. */
+@Composable
+private fun AbbrevKey(names: List<String>, abbrevs: List<String>) {
+    Text(
+        names.zip(abbrevs).joinToString(" · ") { (n, a) -> "$a = $n" },
+        Modifier.padding(12.dp),
+        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}
+
 // --- Standings -------------------------------------------------------------------
 
 private fun LazyListScope.standingsTab(d: Dashboard) {
@@ -271,51 +311,75 @@ private fun LazyListScope.standingsTab(d: Dashboard) {
         val unlucky = st.minBy { it.luck }
         Column(Modifier.padding(top = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatCard("Power #1", power.team, "${fmt1(power.power)} power", Modifier.weight(1f))
-                StatCard("Most points", pf.team, "${fmt1(pf.pointsFor)} PF", Modifier.weight(1f))
+                StatCard("Power #1", power.team, "${fmt1(power.power)} power", d.logo(power.teamId), Modifier.weight(1f))
+                StatCard("Most points", pf.team, "${fmt1(pf.pointsFor)} PF", d.logo(pf.teamId), Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatCard("Luckiest", lucky.team, "${signed(lucky.luck)} wins", Modifier.weight(1f), Good)
-                StatCard("Unluckiest", unlucky.team, "${signed(unlucky.luck)} wins", Modifier.weight(1f), Bad)
+                StatCard("Luckiest", lucky.team, "${signed(lucky.luck)} wins", d.logo(lucky.teamId), Modifier.weight(1f), Good)
+                StatCard("Unluckiest", unlucky.team, "${signed(unlucky.luck)} wins", d.logo(unlucky.teamId), Modifier.weight(1f), Bad)
             }
         }
         SectionTitle("Standings", "All-play: record if you'd played every team every week. Luck: wins above that expectation.")
-    }
-    items(st, key = { it.teamId }) { r ->
-        Column(Modifier.padding(vertical = 8.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text("${r.rank}", Modifier.width(28.dp), style = MaterialTheme.typography.titleMedium)
-                Column(Modifier.weight(1f)) {
-                    Text(r.team, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (r.owner.isNotBlank()) {
-                        Text(r.owner, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Panel {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                PanelHeading("Team", Modifier.weight(1f).padding(start = 28.dp))
+                PanelHeading("Record", align = TextAlign.End)
+            }
+            PanelDivider()
+            st.forEachIndexed { i, r ->
+                if (i > 0) PanelDivider()
+                // A heavier line under the last playoff spot.
+                if (i == d.league.playoffTeamCount && i < st.size) {
+                    HorizontalDivider(thickness = 2.dp, color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                }
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("${r.rank}", Modifier.width(28.dp), style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        TeamCell(r.team, d.logo(r.teamId), r.owner, Modifier.weight(1f))
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(r.record.toString(), fontWeight = FontWeight.Bold)
+                            Text("${fmt1(r.pointsFor)} PF · ${fmt1(r.pointsAgainst)} PA", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Row(Modifier.padding(start = 70.dp, top = 4.dp)) {
+                        Text(
+                            "All-play ${r.allPlay} · xW ${fmt1(r.expectedWins)} · Luck ",
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(signed(r.luck), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
+                            color = if (r.luck >= 0) Good else Bad)
                     }
                 }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(r.record.toString(), fontWeight = FontWeight.SemiBold)
-                    Text("${fmt1(r.pointsFor)} PF · ${fmt1(r.pointsAgainst)} PA", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            Row(Modifier.padding(start = 28.dp, top = 2.dp)) {
-                Text(
-                    "All-play ${r.allPlay} · xW ${fmt1(r.expectedWins)} · Luck ",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text(signed(r.luck), style = MaterialTheme.typography.bodySmall, color = if (r.luck >= 0) Good else Bad)
             }
         }
-        HorizontalDivider()
+        if (d.league.playoffTeamCount < st.size) {
+            Text("Line marks the playoff cut.", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
 @Composable
-private fun StatCard(label: String, value: String, detail: String, modifier: Modifier = Modifier, detailColor: Color? = null) {
-    Card(modifier) {
-        Column(Modifier.padding(12.dp)) {
-            Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
-                maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = detailColor ?: MaterialTheme.colorScheme.onSurfaceVariant)
+private fun StatCard(
+    label: String,
+    value: String,
+    detail: String,
+    logo: String?,
+    modifier: Modifier = Modifier,
+    detailColor: Color? = null,
+) {
+    Panel(modifier) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            TeamLogo(logo, value, 36.dp, Modifier.padding(end = 10.dp), CircleShape)
+            Column {
+                PanelHeading(label)
+                Text(value, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(detail, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.SemiBold,
+                    color = detailColor ?: MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
@@ -330,27 +394,33 @@ private fun LazyListScope.powerTab(d: Dashboard) {
             "50% all-play win rate · 30% season scoring average · 20% last $RECENT_WEEKS weeks. " +
                 "Arrows compare with the standings.",
         )
-    }
-    items(rows, key = { it.teamId }) { r ->
-        val move = r.rank - r.powerRank
-        BarRow(
-            label = r.team + when { move > 0 -> " ▲$move"; move < 0 -> " ▼${-move}"; else -> "" },
-            fraction = (r.power / 100).toFloat(),
-            valueText = fmt1(r.power),
-            leading = "#${r.powerRank}",
-        )
-    }
-    item {
-        SectionTitle("Form", "Season average vs. last $RECENT_WEEKS weeks")
-    }
-    items(rows.sortedByDescending { it.recentAvg - it.avg }, key = { "form${it.teamId}" }) { r ->
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            Text(r.team, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${fmt1(r.avg)} → ${fmt1(r.recentAvg)}", style = MaterialTheme.typography.bodySmall)
-            Text(
-                signed(r.recentAvg - r.avg), Modifier.width(56.dp), textAlign = TextAlign.End,
-                style = MaterialTheme.typography.bodySmall, color = if (r.recentAvg >= r.avg) Good else Bad,
-            )
+        Panel(Modifier.padding(bottom = 4.dp)) {
+            Spacer(Modifier.height(6.dp))
+            rows.forEach { r ->
+                val move = r.rank - r.powerRank
+                BarRow(
+                    label = r.team + when { move > 0 -> " ▲$move"; move < 0 -> " ▼${-move}"; else -> "" },
+                    fraction = (r.power / 100).toFloat(),
+                    valueText = fmt1(r.power),
+                    leading = "#${r.powerRank}",
+                    logo = d.logo(r.teamId),
+                )
+            }
+            Spacer(Modifier.height(6.dp))
+        }
+        SectionTitle("Form", "Season average → last $RECENT_WEEKS weeks")
+        Panel {
+            rows.sortedByDescending { it.recentAvg - it.avg }.forEachIndexed { i, r ->
+                if (i > 0) PanelDivider()
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TeamCell(r.team, d.logo(r.teamId), modifier = Modifier.weight(1f), bold = false)
+                    Text("${fmt1(r.avg)} → ${fmt1(r.recentAvg)}", style = MaterialTheme.typography.bodySmall)
+                    Text(
+                        signed(r.recentAvg - r.avg), Modifier.width(56.dp), textAlign = TextAlign.End, fontWeight = FontWeight.SemiBold,
+                        style = MaterialTheme.typography.bodySmall, color = if (r.recentAvg >= r.avg) Good else Bad,
+                    )
+                }
+            }
         }
     }
 }
@@ -362,37 +432,38 @@ private fun LazyListScope.luckTab(d: Dashboard) {
     val maxAbs = rows.maxOf { kotlin.math.abs(it.luck) }
     item {
         SectionTitle("Wins above expected", "Actual wins minus the wins your weekly scores would earn on average.")
-    }
-    items(rows, key = { it.teamId }) { r ->
-        DivergingBarRow(r.team, r.luck, maxAbs, signed(r.luck))
-    }
-    item {
+        Panel {
+            Spacer(Modifier.height(6.dp))
+            rows.forEach { r -> DivergingBarRow(r.team, r.luck, maxAbs, signed(r.luck), d.logo(r.teamId)) }
+            Spacer(Modifier.height(6.dp))
+        }
         SectionTitle(
             "Schedule swap",
             "Wins each team (row) would have with another team's (column) schedule. " +
                 "The diagonal is the real record. Scroll sideways.",
         )
         val m = d.scheduleSwap
-        val abbrevs = m.teamIds.map { d.league.teams[it]?.abbrev?.ifBlank { null } ?: d.league.teamName(it).take(4) }
-        MatrixTable(
-            matrix = m,
-            abbrevs = abbrevs,
-            cellText = { v -> if (v % 1.0 == 0.0) v.toInt().toString() else fmt1(v) },
-            cellColor = { r, c, v ->
-                val real = m.cells[r][r]
-                when {
-                    r == c -> MaterialTheme.colorScheme.surfaceVariant
-                    v > real -> Good.copy(alpha = 0.18f)
-                    v < real -> Bad.copy(alpha = 0.18f)
-                    else -> Color.Transparent
-                }
-            },
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            m.names.zip(abbrevs).joinToString(" · ") { (n, a) -> "$a = $n" },
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        val abbrevs = m.teamIds.map { d.abbrev(it) }
+        Panel {
+            Box(Modifier.padding(8.dp)) {
+                MatrixTable(
+                    matrix = m,
+                    abbrevs = abbrevs,
+                    cellText = { v -> if (v % 1.0 == 0.0) v.toInt().toString() else fmt1(v) },
+                    cellColor = { r, c, v ->
+                        val real = m.cells[r][r]
+                        when {
+                            r == c -> MaterialTheme.colorScheme.surfaceVariant
+                            v > real -> Good.copy(alpha = 0.18f)
+                            v < real -> Bad.copy(alpha = 0.18f)
+                            else -> Color.Transparent
+                        }
+                    },
+                )
+            }
+            PanelDivider()
+            AbbrevKey(m.names, abbrevs)
+        }
     }
 }
 
@@ -405,49 +476,62 @@ private fun LazyListScope.lineupsTab(d: Dashboard) {
     }
     item {
         SectionTitle("Manager efficiency", "Points scored as a share of the best lineup each team could have set.")
-    }
-    items(d.efficiencySummary) { s ->
-        Column(Modifier.padding(vertical = 6.dp)) {
-            Row {
-                Text(s.team, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(String.format(Locale.US, "%.1f%%", s.efficiency * 100), fontWeight = FontWeight.SemiBold)
+        Panel {
+            d.efficiencySummary.forEachIndexed { i, s ->
+                if (i > 0) PanelDivider()
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TeamCell(s.team, d.logoByName(s.team), "${fmt1(s.leftOnBench)} pts left on bench", Modifier.weight(1f))
+                        Text(String.format(Locale.US, "%.1f%%", s.efficiency * 100), fontWeight = FontWeight.Bold)
+                    }
+                    LinearProgressIndicator(
+                        progress = { s.efficiency.toFloat() },
+                        modifier = Modifier.fillMaxWidth().padding(start = 42.dp, top = 6.dp).clip(RoundedCornerShape(4.dp)),
+                        color = when { s.efficiency >= 0.9 -> Good; s.efficiency >= 0.8 -> Warn; else -> Bad },
+                    )
+                }
             }
-            LinearProgressIndicator(progress = { s.efficiency.toFloat() }, modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp))
-            Text("${fmt1(s.leftOnBench)} pts left on bench", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
-    }
-    item {
         SectionTitle("Record with perfect lineups", "If both teams had started their best players every week.")
-    }
-    items(d.optimalRecord) { r ->
-        Row(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-            Text(r.team, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("${r.actualWins} → ${r.optimalWins} W", style = MaterialTheme.typography.bodyMedium)
-            Text(
-                if (r.diff > 0) "+${r.diff}" else r.diff.toString(), Modifier.width(40.dp), textAlign = TextAlign.End,
-                color = when { r.diff > 0 -> Bad; r.diff < 0 -> Good; else -> MaterialTheme.colorScheme.onSurfaceVariant },
-            )
-        }
-    }
-    item { SectionTitle("Worst lineup decisions") }
-    items(d.efficiency.sortedByDescending { it.leftOnBench }.take(10), key = { "w${it.week}-${it.teamId}" }) { e ->
-        Column(Modifier.padding(vertical = 6.dp)) {
-            Row {
-                Text("Wk ${e.week} · ${e.team}", Modifier.weight(1f), fontWeight = FontWeight.SemiBold,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text("−${fmt1(e.leftOnBench)}", color = Bad)
+        Panel {
+            Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+                PanelHeading("Team", Modifier.weight(1f))
+                PanelHeading("Wins", Modifier.width(80.dp), TextAlign.End)
+                PanelHeading("+/-", Modifier.width(40.dp), TextAlign.End)
             }
-            Text(
-                "Scored ${fmt1(e.actual)} of a possible ${fmt1(e.optimal)}" +
-                    if (e.topBenched.isNotBlank()) " · benched ${e.topBenched}" else "",
-                style = MaterialTheme.typography.bodySmall,
-            )
+            PanelDivider()
+            d.optimalRecord.forEachIndexed { i, r ->
+                if (i > 0) PanelDivider()
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TeamCell(r.team, d.logoByName(r.team), modifier = Modifier.weight(1f), bold = false)
+                    Text("${r.actualWins} → ${r.optimalWins}", Modifier.width(80.dp), textAlign = TextAlign.End,
+                        style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        if (r.diff > 0) "+${r.diff}" else r.diff.toString(), Modifier.width(40.dp), textAlign = TextAlign.End,
+                        fontWeight = FontWeight.SemiBold,
+                        color = when { r.diff > 0 -> Bad; r.diff < 0 -> Good; else -> MaterialTheme.colorScheme.onSurfaceVariant },
+                    )
+                }
+            }
         }
-    }
-    item {
+        SectionTitle("Worst lineup decisions")
+        Panel {
+            d.efficiency.sortedByDescending { it.leftOnBench }.take(10).forEachIndexed { i, e ->
+                if (i > 0) PanelDivider()
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text("WK ${e.week}", Modifier.width(44.dp), style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    TeamCell(
+                        e.team, d.logo(e.teamId),
+                        "Scored ${fmt1(e.actual)} of ${fmt1(e.optimal)}" + if (e.topBenched.isNotBlank()) " · benched ${e.topBenched}" else "",
+                        Modifier.weight(1f),
+                    )
+                    Text("−${fmt1(e.leftOnBench)}", color = Bad, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
         SectionTitle("Inspect a week")
-        LineupInspector(d)
+        Panel { Column(Modifier.padding(12.dp)) { LineupInspector(d) } }
     }
 }
 
@@ -472,24 +556,27 @@ private fun LineupInspector(d: Dashboard) {
 
     Text(
         "Scored ${fmt1(actual)} · best possible ${fmt1(maxOf(opt.total, actual))}",
-        Modifier.padding(vertical = 8.dp), style = MaterialTheme.typography.bodyMedium,
+        Modifier.padding(vertical = 10.dp), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
     )
     Row(Modifier.padding(vertical = 4.dp)) {
         listOf("Player" to 1f, "Pos" to 0.35f, "Yours" to 0.45f, "Best" to 0.45f, "Pts" to 0.4f).forEach { (h, w) ->
-            Text(h, Modifier.weight(w), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+            PanelHeading(h, Modifier.weight(w))
         }
     }
+    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
     roster.sortedByDescending { it.points }.forEach { p ->
         val best = optSlot[p] ?: "BE"
         val mine = slotName(p.slotId)
         val wrong = (best == "BE") != (mine == "BE" || mine == "IR")
-        Row(Modifier.padding(vertical = 3.dp)) {
+        Row(Modifier.padding(vertical = 4.dp)) {
             Text(p.name, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(p.position, Modifier.weight(0.35f), style = MaterialTheme.typography.bodySmall)
+            Text(p.position, Modifier.weight(0.35f), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             Text(mine, Modifier.weight(0.45f), style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (wrong) FontWeight.Bold else FontWeight.Normal,
                 color = if (wrong) Bad else MaterialTheme.colorScheme.onSurface)
             Text(best, Modifier.weight(0.45f), style = MaterialTheme.typography.bodySmall)
-            Text(fmt1(p.points), Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall)
+            Text(fmt1(p.points), Modifier.weight(0.4f), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -503,26 +590,49 @@ private fun LazyListScope.scoringTab(d: Dashboard) {
         SectionTitle("Weekly scores", "Tap a team to highlight it.")
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             d.standings.forEach { r ->
-                FilterChip(selected = selected == r.team, onClick = { selected = r.team }, label = { Text(r.team) })
+                FilterChip(
+                    selected = selected == r.team, onClick = { selected = r.team }, label = { Text(r.team) },
+                    leadingIcon = { TeamLogo(d.logo(r.teamId), r.team, 18.dp, shape = CircleShape) },
+                )
             }
         }
-        LineChart(byTeam, selected, Modifier.padding(top = 12.dp))
+        Panel(Modifier.padding(top = 8.dp)) { LineChart(byTeam, selected, Modifier.padding(12.dp)) }
         val games = d.games.filter { it.team == selected }.sortedBy { it.week }
-        Column(Modifier.padding(top = 12.dp)) {
-            games.forEach { g ->
-                Row(Modifier.padding(vertical = 2.dp)) {
-                    Text("Wk ${g.week}", Modifier.width(48.dp), style = MaterialTheme.typography.bodySmall)
-                    Text("${g.result} ${fmt1(g.points)}–${fmt1(g.oppPoints)}", Modifier.width(120.dp),
-                        style = MaterialTheme.typography.bodySmall, color = if (g.result == 'W') Good else if (g.result == 'L') Bad else Color.Unspecified)
-                    Text("vs ${g.opponent}", style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        if (games.isNotEmpty()) {
+            SectionTitle("$selected by week")
+            Panel {
+                games.forEachIndexed { i, g ->
+                    if (i > 0) PanelDivider()
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("WK ${g.week}", Modifier.width(44.dp), style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        ResultBadge(g.result)
+                        Text("${fmt1(g.points)}–${fmt1(g.oppPoints)}", Modifier.width(104.dp).padding(start = 8.dp),
+                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        TeamLogo(d.logo(g.oppId), g.opponent, 20.dp, Modifier.padding(end = 6.dp), CircleShape)
+                        Text(g.opponent, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                 }
             }
         }
         SectionTitle("Consistency", "Average score ± week-to-week standard deviation. Low spread means fewer duds.")
+        val maxAvg = d.standings.maxOf { it.avg }
+        Panel {
+            Spacer(Modifier.height(6.dp))
+            d.standings.sortedByDescending { it.avg }.forEach { r ->
+                BarRow(r.team, (r.avg / maxAvg).toFloat(), "${r.avg.toInt()}±${r.stdDev.toInt()}", logo = d.logo(r.teamId))
+            }
+            Spacer(Modifier.height(6.dp))
+        }
     }
-    val maxAvg = d.standings.maxOf { it.avg }
-    items(d.standings.sortedByDescending { it.avg }, key = { "c${it.teamId}" }) { r ->
-        BarRow(r.team, (r.avg / maxAvg).toFloat(), "${r.avg.toInt()}±${r.stdDev.toInt()}")
+}
+
+/** W / L / T in a small colored square. */
+@Composable
+private fun ResultBadge(result: Char) {
+    val color = when (result) { 'W' -> Good; 'L' -> Bad; else -> MaterialTheme.colorScheme.onSurfaceVariant }
+    Box(Modifier.size(22.dp).clip(RoundedCornerShape(6.dp)).background(color.copy(alpha = 0.2f)), contentAlignment = Alignment.Center) {
+        Text(result.toString(), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = color)
     }
 }
 
@@ -532,25 +642,26 @@ private fun LazyListScope.headToHeadTab(d: Dashboard) {
     item {
         SectionTitle("Head-to-head", "Row team's record against the column team this season (playoffs included). Scroll sideways.")
         val m = d.headToHead
-        val abbrevs = m.teamIds.map { d.league.teams[it]?.abbrev?.ifBlank { null } ?: d.league.teamName(it).take(4) }
-        MatrixTable(
-            matrix = m,
-            abbrevs = abbrevs,
-            cellText = { r -> r?.let { if (it.w + it.l + it.t == 0) "" else it.toString() } ?: "—" },
-            cellColor = { _, _, r ->
-                when {
-                    r == null -> MaterialTheme.colorScheme.surfaceVariant
-                    r.w > r.l -> Good.copy(alpha = 0.18f)
-                    r.l > r.w -> Bad.copy(alpha = 0.18f)
-                    else -> Color.Transparent
-                }
-            },
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            m.names.zip(abbrevs).joinToString(" · ") { (n, a) -> "$a = $n" },
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        val abbrevs = m.teamIds.map { d.abbrev(it) }
+        Panel {
+            Box(Modifier.padding(8.dp)) {
+                MatrixTable(
+                    matrix = m,
+                    abbrevs = abbrevs,
+                    cellText = { r -> r?.let { if (it.w + it.l + it.t == 0) "" else it.toString() } ?: "—" },
+                    cellColor = { _, _, r ->
+                        when {
+                            r == null -> MaterialTheme.colorScheme.surfaceVariant
+                            r.w > r.l -> Good.copy(alpha = 0.18f)
+                            r.l > r.w -> Bad.copy(alpha = 0.18f)
+                            else -> Color.Transparent
+                        }
+                    },
+                )
+            }
+            PanelDivider()
+            AbbrevKey(m.names, abbrevs)
+        }
     }
 }
 
@@ -558,23 +669,29 @@ private fun LazyListScope.headToHeadTab(d: Dashboard) {
 
 private fun LazyListScope.recordsTab(d: Dashboard) {
     d.notable.forEach { (title, games) ->
-        item(key = "t$title") { SectionTitle(title) }
-        items(games, key = { "$title${it.week}-${it.teamId}" }) { g -> GameRow(g, showMargin = "game" in title.lowercase() || "blowout" in title.lowercase() || "loss" in title.lowercase()) }
+        item(key = "t$title") {
+            SectionTitle(title)
+            val margin = "game" in title.lowercase() || "blowout" in title.lowercase() || "loss" in title.lowercase()
+            Panel {
+                games.forEachIndexed { i, g ->
+                    if (i > 0) PanelDivider()
+                    GameRow(d, g, margin)
+                }
+            }
+        }
     }
 }
 
 @Composable
-private fun GameRow(g: TeamGame, showMargin: Boolean) {
-    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("Wk ${g.week}", Modifier.width(48.dp), style = MaterialTheme.typography.bodySmall)
-        Column(Modifier.weight(1f)) {
-            Text("${g.team} ${fmt1(g.points)}", style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text("vs ${g.opponent} ${fmt1(g.oppPoints)}", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun GameRow(d: Dashboard, g: TeamGame, showMargin: Boolean) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text("WK ${g.week}", Modifier.width(44.dp), style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        TeamCell("${g.team} ${fmt1(g.points)}", d.logo(g.teamId), "vs ${g.opponent} ${fmt1(g.oppPoints)}", Modifier.weight(1f))
+        if (showMargin) {
+            Text("by ${fmt1(kotlin.math.abs(g.margin))}", style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
+        } else {
+            ResultBadge(g.result)
         }
-        Text(
-            if (showMargin) "by ${fmt1(kotlin.math.abs(g.margin))}" else g.result.toString(),
-            style = MaterialTheme.typography.labelMedium,
-        )
     }
 }

@@ -304,16 +304,6 @@ private fun PanelLabel(text: String, subtitle: String? = null) {
     }
 }
 
-/** A rounded, slightly raised group of rows, like the Matchup lineups. */
-@Composable
-internal fun Panel(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    Column(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp)),
-    ) { content() }
-}
-
 @Composable
 private fun AddButton(enabled: Boolean, onClick: () -> Unit) {
     FilledIconButton(
