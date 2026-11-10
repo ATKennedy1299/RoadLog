@@ -600,9 +600,23 @@ private fun LineupInspector(d: Dashboard) {
 
 private fun LazyListScope.scoringTab(d: Dashboard) {
     item {
-        val byTeam = d.games.groupBy { it.team }.mapValues { (_, g) -> g.map { it.week to it.points } }
+        var cumulative by rememberSaveable { mutableStateOf(false) }
+        val byTeam = remember(d, cumulative) {
+            d.games.groupBy { it.team }.mapValues { (_, g) ->
+                val weeks = g.sortedBy { it.week }
+                if (!cumulative) weeks.map { it.week to it.points }
+                else weeks.runningFold(0.0) { total, w -> total + w.points }.drop(1).zip(weeks) { total, w -> w.week to total }
+            }
+        }
         var selected by rememberSaveable { mutableStateOf(d.standings.first().team) }
-        SectionTitle("Weekly scores", "Tap a team to highlight it.")
+        SectionTitle(
+            if (cumulative) "Season points" else "Weekly scores",
+            if (cumulative) "Running total of points scored. Tap a team to highlight it." else "Tap a team to highlight it.",
+        )
+        Row(Modifier.padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected = !cumulative, onClick = { cumulative = false }, label = { Text("Weekly") })
+            FilterChip(selected = cumulative, onClick = { cumulative = true }, label = { Text("Cumulative") })
+        }
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             d.standings.forEach { r ->
                 FilterChip(
