@@ -184,7 +184,13 @@ fun DivergingBarRow(label: String, value: Double, maxAbs: Double, valueText: Str
  * league average dashed.
  */
 @Composable
-fun LineChart(series: Map<String, List<Pair<Int, Double>>>, highlight: String?, modifier: Modifier = Modifier) {
+fun LineChart(
+    series: Map<String, List<Pair<Int, Double>>>,
+    highlight: String?,
+    modifier: Modifier = Modifier,
+    height: Dp = 200.dp,
+    averageLabel: String = "League average",
+) {
     val all = series.values.flatten()
     if (all.isEmpty()) return
     val minX = all.minOf { it.first }
@@ -200,12 +206,12 @@ fun LineChart(series: Map<String, List<Pair<Int, Double>>>, highlight: String?, 
 
     Column(modifier) {
         Row {
-            Column(Modifier.width(40.dp).height(200.dp), verticalArrangement = Arrangement.SpaceBetween) {
+            Column(Modifier.width(40.dp).height(height), verticalArrangement = Arrangement.SpaceBetween) {
                 Text(maxY.toInt().toString(), style = MaterialTheme.typography.labelSmall)
                 Text(((minY + maxY) / 2).toInt().toString(), style = MaterialTheme.typography.labelSmall)
                 Text(minY.toInt().toString(), style = MaterialTheme.typography.labelSmall)
             }
-            Canvas(Modifier.weight(1f).height(200.dp)) {
+            Canvas(Modifier.weight(1f).height(height)) {
                 val xSpan = (maxX - minX).coerceAtLeast(1)
                 val ySpan = (maxY - minY).takeIf { it > 0 } ?: 1.0
                 fun pt(p: Pair<Int, Double>) = Offset(
@@ -238,7 +244,7 @@ fun LineChart(series: Map<String, List<Pair<Int, Double>>>, highlight: String?, 
             Box(Modifier.size(10.dp).background(strong))
             Text(" ${highlight ?: ""}   ", style = MaterialTheme.typography.labelSmall)
             Box(Modifier.size(10.dp).background(avgColor))
-            Text(" League average", style = MaterialTheme.typography.labelSmall)
+            Text(" $averageLabel", style = MaterialTheme.typography.labelSmall)
         }
     }
 }

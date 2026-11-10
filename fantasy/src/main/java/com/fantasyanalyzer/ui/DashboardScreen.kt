@@ -2,6 +2,9 @@
 
 package com.fantasyanalyzer.ui
 
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.layout.offset
@@ -601,17 +604,26 @@ private fun LineupInspector(d: Dashboard) {
 private fun LazyListScope.scoringTab(d: Dashboard) {
     item {
         var cumulative by rememberSaveable { mutableStateOf(false) }
-        val byTeam = remember(d, cumulative) {
+        // Running totals all climb together, so cumulative mode plots each team's
+        // total minus the league's average total: the gaps are what matter.
+        val totals = remember(d) {
             d.games.groupBy { it.team }.mapValues { (_, g) ->
                 val weeks = g.sortedBy { it.week }
-                if (!cumulative) weeks.map { it.week to it.points }
-                else weeks.runningFold(0.0) { total, w -> total + w.points }.drop(1).zip(weeks) { total, w -> w.week to total }
+                weeks.runningFold(0.0) { total, w -> total + w.points }.drop(1).zip(weeks) { total, w -> w.week to total }
             }
+        }
+        val avgTotal = remember(totals) {
+            totals.values.flatten().groupBy { it.first }.mapValues { (_, v) -> v.map { it.second }.average() }
+        }
+        val byTeam = remember(d, cumulative) {
+            if (!cumulative) d.games.groupBy { it.team }.mapValues { (_, g) -> g.sortedBy { it.week }.map { it.week to it.points } }
+            else totals.mapValues { (_, pts) -> pts.map { (w, t) -> w to t - avgTotal.getValue(w) } }
         }
         var selected by rememberSaveable { mutableStateOf(d.standings.first().team) }
         SectionTitle(
-            if (cumulative) "Season points" else "Weekly scores",
-            if (cumulative) "Running total of points scored. Tap a team to highlight it." else "Tap a team to highlight it.",
+            if (cumulative) "Season points vs. average" else "Weekly scores",
+            if (cumulative) "Running total of points, above or below the league average. Tap a team to highlight it."
+            else "Tap a team to highlight it.",
         )
         Row(Modifier.padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             FilterChip(selected = !cumulative, onClick = { cumulative = false }, label = { Text("Weekly") })
@@ -625,7 +637,28 @@ private fun LazyListScope.scoringTab(d: Dashboard) {
                 )
             }
         }
-        Panel(Modifier.padding(top = 8.dp)) { LineChart(byTeam, selected, Modifier.padding(12.dp)) }
+        Panel(Modifier.padding(top = 8.dp)) {
+            LineChart(
+                byTeam, selected, Modifier.padding(12.dp),
+                height = if (cumulative) 280.dp else 200.dp,
+                averageLabel = if (cumulative) "League average (0)" else "League average",
+            )
+            if (cumulative) {
+                totals[selected]?.lastOrNull()?.let { (w, total) ->
+                    val diff = total - avgTotal.getValue(w)
+                    Text(
+                        buildAnnotatedString {
+                            append("$selected: ${fmt1(total)} pts through week $w · ")
+                            withStyle(SpanStyle(color = if (diff >= 0) Good else Bad, fontWeight = FontWeight.Bold)) {
+                                append("${signed(diff)} vs. average")
+                            }
+                        },
+                        Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        }
         val games = d.games.filter { it.team == selected }.sortedBy { it.week }
         if (games.isNotEmpty()) {
             SectionTitle("$selected by week")
