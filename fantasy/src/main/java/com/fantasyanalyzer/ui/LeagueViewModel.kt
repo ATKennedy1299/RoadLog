@@ -5,6 +5,8 @@ import android.webkit.CookieManager
 import android.webkit.WebSettings
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.fantasyanalyzer.data.LeadersState
+import com.fantasyanalyzer.data.Leader
 import com.fantasyanalyzer.analysis.Analysis
 import com.fantasyanalyzer.analysis.EfficiencyRow
 import com.fantasyanalyzer.analysis.EfficiencySummary
@@ -249,6 +251,43 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
                 null
             }
             if (weeks != null && weeks.isNotEmpty()) _playerWeeks.value = _playerWeeks.value + (playerId to weeks)
+        }
+    }
+
+    private val _leaders = MutableStateFlow(LeadersState())
+    /** Season stat leaders by position, loaded when the Leaders tab is first opened. */
+    val leaders: StateFlow<LeadersState> = _leaders.asStateFlow()
+
+    /** Loads every position's stat leaders (once per session; ESPN's copy is reused for a few hours). */
+    fun requestLeaders() {
+        val s = _settings.value
+        val d = (_state.value as? UiState.Loaded)?.dashboard ?: return
+        val cur = _leaders.value
+        if (s.useDemo) {
+            _leaders.value = LeadersState(error = "Stat leaders need your ESPN league; the demo doesn't have them.")
+            return
+        }
+        if (cur.loading || cur.byPosition.isNotEmpty()) return
+        _leaders.value = LeadersState(loading = true)
+        val net = client(s)
+        val week = d.league.currentScoringPeriod
+        viewModelScope.launch {
+            val byPosition = withContext(Dispatchers.IO) {
+                Leader.POSITION_SLOTS.mapNotNull { (pos, slot) ->
+                    try {
+                        pos to EspnParser.parseLeaders(net.leaders(week, slot), week, d.data.proTeams, d.data.ratings, s.year)
+                            .filter { it.player.position == pos }
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        null
+                    }
+                }.toMap()
+            }
+            _leaders.value = LeadersState(
+                byPosition = byPosition,
+                error = if (byPosition.values.all { it.isEmpty() }) "ESPN didn't return season stats. Try again later." else null,
+            )
         }
     }
 
@@ -519,6 +558,7 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
         AlertScheduler.apply(getApplication(), next)
         if (next.leagueId != prev.leagueId || next.year != prev.year || next.useDemo != prev.useDemo) {
             _state.value = UiState.Loading("Loading…") // don't flash the old league
+            _leaders.value = LeadersState()
         }
         load()
     }

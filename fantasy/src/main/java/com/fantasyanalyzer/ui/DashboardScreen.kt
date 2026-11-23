@@ -86,6 +86,7 @@ import java.util.Locale
 
 private val TABS = listOf(
     "Standings", "Matchup", "My Team", "Waivers", "Playoffs", "Power", "Luck", "Lineups", "Scoring", "Head-to-Head", "Records",
+    "Leaders",
 )
 
 @Composable
@@ -105,6 +106,7 @@ fun DashboardScreen(
     playerWeeks: Map<Long, Map<Int, com.fantasyanalyzer.data.WeekLine>>,
     onRequestPlayer: (Long) -> Unit,
     waiverActions: WaiverActions,
+    leadersActions: LeadersActions,
 ) {
     val dashboard = (state as? UiState.Loaded)?.dashboard
 
@@ -194,7 +196,7 @@ fun DashboardScreen(
                         Centered { Text("No completed games yet this season.") }
                     } else {
                         Tabs(state.dashboard, state.dashboard.myTeamId(settings), onSetMyTeam, weekLineups, onRequestWeek, lineupActions,
-                            playerWeeks, onRequestPlayer, waiverActions)
+                            playerWeeks, onRequestPlayer, waiverActions, leadersActions)
                     }
                 }
             }
@@ -222,6 +224,7 @@ private fun Tabs(
     playerWeeks: Map<Long, Map<Int, com.fantasyanalyzer.data.WeekLine>>,
     onRequestPlayer: (Long) -> Unit,
     waiverActions: WaiverActions,
+    leadersActions: LeadersActions,
 ) {
     // Opens on Matchup (tab order unchanged).
     var tab by rememberSaveable { mutableIntStateOf(TABS.indexOf("Matchup")) }
@@ -258,7 +261,8 @@ private fun Tabs(
                     7 -> lineupsTab(d)
                     8 -> scoringTab(d)
                     9 -> headToHeadTab(d)
-                    else -> recordsTab(d)
+                    10 -> recordsTab(d)
+                    else -> item(key = "leaders") { LeadersScreen(d, myTeam, leadersActions) }
                 }
             }
         }

@@ -284,6 +284,37 @@ object EspnParser {
         return entryWeeks(entry, season)
     }
 
+    /**
+     * A stat leaders response (`kona_player_info`): each player with his season
+     * totals for [season], best fantasy total first. Players with no points
+     * this season are left out.
+     */
+    fun parseLeaders(
+        raw: JSONObject,
+        week: Int,
+        proTeams: Map<Int, ProTeam>,
+        ratings: PositionRatings = emptyMap(),
+        season: Int? = null,
+    ): List<Leader> = raw.optJSONArray("players").objects().mapNotNull { e ->
+        val stats = e.optJSONObject("player")?.optJSONArray("stats").objects()
+        val year = season ?: stats.maxOfOrNull { it.optInt("seasonId", 0) }?.takeIf { it > 0 }
+        // Season totals: split 0, week 0, actual points.
+        val total = stats.firstOrNull {
+            it.optInt("statSplitTypeId", -1) == 0 && it.optInt("scoringPeriodId", -1) == 0 &&
+                it.optInt("statSourceId", -1) == ACTUAL && (year == null || !it.has("seasonId") || it.optInt("seasonId") == year)
+        } ?: return@mapNotNull null
+        val points = total.optDouble("appliedTotal", 0.0).orZero()
+        if (points == 0.0) return@mapNotNull null
+        val totals = numbers(total.optJSONObject("stats"))
+        Leader(
+            player = parsePlayer(e, week, proTeams, ratings, season),
+            points = points,
+            games = totals[Leader.GAMES_PLAYED]?.toInt()?.takeIf { it > 0 },
+            stats = totals,
+            fantasyTeamId = e.optInt("onTeamId", 0).takeIf { it > 0 },
+        )
+    }.sortedByDescending { it.points }
+
     /** Every player in a player list response (card or free agents): id -> week by week. */
     fun parseSeasons(raw: JSONObject, season: Int? = null): Map<Long, Map<Int, WeekLine>> =
         raw.optJSONArray("players").objects().mapNotNull { e ->

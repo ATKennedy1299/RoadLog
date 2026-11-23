@@ -113,6 +113,20 @@ class EspnClient(
         (listOf("00$year", "10$year") + (1..throughWeek).flatMap { listOf("01$year$it", "11$year$it") })
             .joinToString(",") { "\"$it\"" }
 
+    /**
+     * The season's top fantasy scorers who can fill [slotId], rostered or not,
+     * with their season totals. Refreshed every few hours.
+     */
+    fun leaders(week: Int, slotId: Int, limit: Int = 50): JSONObject = cached("leaders-$week-$slotId", reuseFor = SIX_HOURS) {
+        get(
+            listOf("view" to "kona_player_info", "scoringPeriodId" to week.toString()),
+            filter = """{"players":{"filterSlotIds":{"value":[$slotId]},"limit":$limit,"offset":0,""" +
+                """"sortAppliedStatTotal":{"sortAsc":false,"sortPriority":1,"value":"00$year"},""" +
+                """"sortPercOwned":{"sortPriority":2,"sortAsc":false},""" +
+                """"filterStatsForTopScoringPeriodIds":{"value":1,"additionalValue":["00$year"]}}}""",
+        )
+    }
+
     /** Free agents and waiver players who can fill [slotId], most-owned first. */
     fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = cached("fa4-$week-$slotId") { freeAgentsNet(week, slotId, limit) }
 
