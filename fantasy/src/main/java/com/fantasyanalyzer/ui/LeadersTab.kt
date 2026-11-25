@@ -181,12 +181,13 @@ internal fun LeadersScreen(d: Dashboard, myTeam: Int?, actions: LeadersActions) 
 private fun columnsFor(position: String, shares: Shares): List<StatColumn> {
     val tgt = StatColumn("TGT%") { shares.targets[it.player.id] }
     val car = StatColumn("CAR%") { shares.carries[it.player.id] }
-    val extra = when (position) {
-        "RB" -> listOf(car, tgt)
+    // Right after the basics, so they're on screen without scrolling sideways.
+    val shares = when (position) {
+        "RB", ALL -> listOf(tgt, car)
         "WR", "TE" -> listOf(tgt)
         else -> emptyList()
     }
-    return COMMON + POSITION_COLUMNS[position].orEmpty() + extra
+    return COMMON + shares + POSITION_COLUMNS[position].orEmpty()
 }
 
 @Composable
