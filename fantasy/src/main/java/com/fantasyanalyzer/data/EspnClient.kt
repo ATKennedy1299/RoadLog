@@ -98,6 +98,19 @@ class EspnClient(
         )
     }
 
+    /**
+     * The same weeks through the free agent list's view, for when a league's card
+     * leaves projections out. Checked against ESPN: works with filterIds as long
+     * as there's no "limit".
+     */
+    fun playerProjections(playerId: Long): JSONObject = cached("pinfo-$playerId", reuseFor = THIRTY_MINUTES) {
+        get(
+            listOf("view" to "kona_player_info"),
+            filter = """{"players":{"filterIds":{"value":[$playerId]},""" +
+                """"filterStatsForTopScoringPeriodIds":{"value":18,"additionalValue":[${seasonStatIds(18)}]}}}""",
+        )
+    }
+
     /** ESPN stat set ids (source + split + season + week): season totals, then each week's actual and projection. */
     private fun seasonStatIds(throughWeek: Int): String =
         (listOf("00$year", "10$year") + (1..throughWeek).flatMap { listOf("01$year$it", "11$year$it") })

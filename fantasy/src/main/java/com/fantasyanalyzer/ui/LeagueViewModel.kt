@@ -244,7 +244,21 @@ class LeagueViewModel(app: Application) : AndroidViewModel(app) {
         val net = client(s)
         viewModelScope.launch {
             val weeks = try {
-                withContext(Dispatchers.IO) { EspnParser.parsePlayerWeeks(net.playerCard(playerId), playerId, s.year) }
+                withContext(Dispatchers.IO) {
+                    val card = EspnParser.parsePlayerWeeks(net.playerCard(playerId), playerId, s.year)
+                    if (card.values.any { it.projected != null }) card
+                    else {
+                        // Some leagues' cards come without projections: fill them in from the player list view.
+                        val proj = try {
+                            EspnParser.parsePlayerWeeks(net.playerProjections(playerId), playerId, s.year)
+                        } catch (e: EspnException) {
+                            emptyMap()
+                        }
+                        (card.keys + proj.keys).associateWith { w ->
+                            WeekLine(card[w]?.actual ?: proj[w]?.actual, proj[w]?.projected, card[w]?.statLine ?: proj[w]?.statLine)
+                        }
+                    }
+                }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
             } catch (e: Exception) {
