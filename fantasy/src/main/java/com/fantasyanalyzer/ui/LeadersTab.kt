@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -70,7 +71,21 @@ internal fun LeadersScreen(d: Dashboard, myTeam: Int?, actions: LeadersActions) 
     var position by rememberSaveable { mutableStateOf(ALL) }
     var sortBy by rememberSaveable { mutableStateOf("FPTS") }
     var ascending by rememberSaveable { mutableStateOf(false) }
+    var recentOnly by rememberSaveable { mutableStateOf(false) }
+    // -1 everyone, 0 free agents, otherwise a league team id.
+    var owner by rememberSaveable { mutableIntStateOf(-1) }
     val open = LocalOpenPlayer.current
+    val ownerIds = remember(d, myTeam) {
+        listOf(-1, 0) + listOfNotNull(myTeam) + d.league.teams.keys.filter { it != myTeam }.sortedBy { d.league.teamName(it) }
+    }
+    val ownerNames = ownerIds.map { id ->
+        when (id) {
+            -1 -> "Everyone"
+            0 -> "Free agents"
+            myTeam -> "My team"
+            else -> d.league.teamName(id)
+        }
+    }
 
     Column(Modifier.padding(top = 12.dp)) {
         Row(
@@ -90,6 +105,13 @@ internal fun LeadersScreen(d: Dashboard, myTeam: Int?, actions: LeadersActions) 
             }
         }
 
+        Row(Modifier.padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            FilterChip(selected = !recentOnly, onClick = { recentOnly = false }, label = { Text("Season") })
+            FilterChip(selected = recentOnly, onClick = { recentOnly = true }, label = { Text("Last ${Leader.RECENT_WEEKS}") })
+            Picker("Owner", ownerNames, ownerIds.indexOf(owner).coerceAtLeast(0), { owner = ownerIds[it] }, Modifier.weight(1f))
+        }
+
         when {
             state.loading || (state.byPosition.isEmpty() && state.error == null) -> Row(
                 Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center,
@@ -98,8 +120,16 @@ internal fun LeadersScreen(d: Dashboard, myTeam: Int?, actions: LeadersActions) 
             else -> {
                 val columns = columnsFor(position)
                 val sortColumn = columns.firstOrNull { it.label == sortBy } ?: columns.first()
-                val rows = remember(state, position, sortBy, ascending) {
-                    val pool = if (position == ALL) state.byPosition.values.flatten() else state.byPosition[position].orEmpty()
+                val rows = remember(state, position, sortBy, ascending, recentOnly, owner) {
+                    val pool = (if (position == ALL) state.byPosition.values.flatten() else state.byPosition[position].orEmpty())
+                        .mapNotNull { if (recentOnly) it.recentOnly() else it }
+                        .filter {
+                            when (owner) {
+                                -1 -> true
+                                0 -> it.fantasyTeamId == null
+                                else -> it.fantasyTeamId == owner
+                            }
+                        }
                     val (known, unknown) = pool.partition { sortColumn.value(it) != null }
                     val sorted = known.sortedBy { sortColumn.value(it)!! }
                     (if (ascending) sorted else sorted.reversed()) + unknown
@@ -110,8 +140,12 @@ internal fun LeadersScreen(d: Dashboard, myTeam: Int?, actions: LeadersActions) 
                     },
                     onOpen = { open(it.player) },
                 )
+                if (rows.isEmpty()) {
+                    Text("Nobody here matches.", Modifier.padding(vertical = 12.dp), color = muted)
+                }
                 Text(
-                    "Season totals from ESPN, top 50 at each position, rostered or not. Tap a column to sort; tap again to flip.",
+                    (if (recentOnly) "Last ${Leader.RECENT_WEEKS} finished weeks" else "Season totals") +
+                        " from ESPN, among the season's top 50 at each position. Tap a column to sort; tap again to flip.",
                     Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelSmall, color = muted,
                 )
             }

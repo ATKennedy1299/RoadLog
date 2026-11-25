@@ -306,12 +306,23 @@ object EspnParser {
         val points = total.optDouble("appliedTotal", 0.0).orZero()
         if (points == 0.0) return@mapNotNull null
         val totals = numbers(total.optJSONObject("stats"))
+        // The last few finished weeks, summed: weekly actuals of this season.
+        val recentWeeks = Leader.recentWeeks(week).toSet()
+        val recentEntries = weekly(stats, year)
+            .filter { it.optInt("statSourceId", -1) == ACTUAL && it.optInt("scoringPeriodId") in recentWeeks }
+            .distinctBy { it.optInt("scoringPeriodId") }
+        val recent = recentEntries.takeIf { it.isNotEmpty() }?.let { entries ->
+            val sums = mutableMapOf<Int, Double>()
+            entries.forEach { en -> numbers(en.optJSONObject("stats")).forEach { (k, v) -> sums[k] = (sums[k] ?: 0.0) + v } }
+            Leader.Recent(entries.sumOf { it.optDouble("appliedTotal", 0.0).orZero() }, entries.size, sums)
+        }
         Leader(
             player = parsePlayer(e, week, proTeams, ratings, season),
             points = points,
             games = totals[Leader.GAMES_PLAYED]?.toInt()?.takeIf { it > 0 },
             stats = totals,
             fantasyTeamId = e.optInt("onTeamId", 0).takeIf { it > 0 },
+            recent = recent,
         )
     }.sortedByDescending { it.points }
 

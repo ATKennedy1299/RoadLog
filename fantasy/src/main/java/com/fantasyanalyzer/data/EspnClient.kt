@@ -117,13 +117,15 @@ class EspnClient(
      * The season's top fantasy scorers who can fill [slotId], rostered or not,
      * with their season totals. Refreshed every few hours.
      */
-    fun leaders(week: Int, slotId: Int, limit: Int = 50): JSONObject = cached("leaders-$week-$slotId", reuseFor = SIX_HOURS) {
+    fun leaders(week: Int, slotId: Int, limit: Int = 50): JSONObject = cached("leaders2-$week-$slotId", reuseFor = SIX_HOURS) {
+        // Season totals plus each recent week's actuals, for the "Last 3" view.
+        val ids = (listOf("00$year") + Leader.recentWeeks(week).map { "01$year$it" }).joinToString(",") { "\"$it\"" }
         get(
             listOf("view" to "kona_player_info", "scoringPeriodId" to week.toString()),
             filter = """{"players":{"filterSlotIds":{"value":[$slotId]},"limit":$limit,"offset":0,""" +
                 """"sortAppliedStatTotal":{"sortAsc":false,"sortPriority":1,"value":"00$year"},""" +
                 """"sortPercOwned":{"sortPriority":2,"sortAsc":false},""" +
-                """"filterStatsForTopScoringPeriodIds":{"value":1,"additionalValue":["00$year"]}}}""",
+                """"filterStatsForTopScoringPeriodIds":{"value":1,"additionalValue":[$ids]}}}""",
         )
     }
 
