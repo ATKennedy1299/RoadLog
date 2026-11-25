@@ -713,9 +713,7 @@ private fun WeekTable(d: Dashboard) {
     }
     var week by rememberSaveable(weeks.last()) { mutableIntStateOf(weeks.last()) }
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
-    Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        weeks.forEach { w -> FilterChip(selected = week == w, onClick = { week = w }, label = { Text("Wk $w") }) }
-    }
+    Panel(Modifier.padding(bottom = 8.dp)) { WeekBar(week, weeks, WeekBadge.PAST) { week = it } }
     val rows = d.games.filter { it.week == week }.sortedByDescending { it.points }
     val avg = rows.map { it.points }.average()
     Panel {

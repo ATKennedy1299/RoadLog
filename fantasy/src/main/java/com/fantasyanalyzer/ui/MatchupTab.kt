@@ -220,7 +220,7 @@ private val SMOOTH = spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, s
 
 // --- Week bar -------------------------------------------------------------------------------
 
-private enum class WeekBadge(val label: String) { LIVE("LIVE"), FINAL("FINAL"), UPCOMING("UPCOMING"), PAST("") }
+internal enum class WeekBadge(val label: String) { LIVE("LIVE"), FINAL("FINAL"), UPCOMING("UPCOMING"), PAST("") }
 
 private fun weekBadge(week: Int, current: Int, matchups: List<Matchup>): WeekBadge = when {
     matchups.isNotEmpty() && matchups.all { it.complete } -> WeekBadge.FINAL
@@ -230,7 +230,7 @@ private fun weekBadge(week: Int, current: Int, matchups: List<Matchup>): WeekBad
 }
 
 @Composable
-private fun WeekBar(week: Int, weeks: List<Int>, badge: WeekBadge, onWeek: (Int) -> Unit) {
+internal fun WeekBar(week: Int, weeks: List<Int>, badge: WeekBadge, onWeek: (Int) -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = { onWeek(weeks.lastOrNull { it < week } ?: week) }, enabled = week > weeks.first()) {
             Icon(Icons.AutoMirrored.Filled.KeyboardArrowLeft, "Previous week", tint = MaterialTheme.colorScheme.primary)
