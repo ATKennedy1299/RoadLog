@@ -607,7 +607,9 @@ private fun LineupInspector(d: Dashboard) {
 
 private fun LazyListScope.scoringTab(d: Dashboard) {
     item {
-        var cumulative by rememberSaveable { mutableStateOf(false) }
+        // 0 = weekly lines, 1 = cumulative lines, 2 = one week's scores as a ranked table.
+        var mode by rememberSaveable { mutableIntStateOf(0) }
+        val cumulative = mode == 1
         // Running totals all climb together, so cumulative mode plots each team's
         // total minus the league's average total: the gaps are what matter.
         val totals = remember(d) {
@@ -625,14 +627,21 @@ private fun LazyListScope.scoringTab(d: Dashboard) {
         }
         var selected by rememberSaveable { mutableStateOf(d.standings.first().team) }
         SectionTitle(
-            if (cumulative) "Season points vs. average" else "Weekly scores",
-            if (cumulative) "Running total of points, above or below the league average. Tap a team to highlight it."
-            else "Tap a team to highlight it.",
+            when (mode) { 1 -> "Season points vs. average"; 2 -> "Week by week"; else -> "Weekly scores" },
+            when (mode) {
+                1 -> "Running total of points, above or below the league average. Tap a team to highlight it."
+                2 -> "Every manager's score for one week, highest first. All-play: their record that week against everyone."
+                else -> "Tap a team to highlight it."
+            },
         )
         Row(Modifier.padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            FilterChip(selected = !cumulative, onClick = { cumulative = false }, label = { Text("Weekly") })
-            FilterChip(selected = cumulative, onClick = { cumulative = true }, label = { Text("Cumulative") })
+            listOf("Weekly", "Cumulative", "Week by week").forEachIndexed { i, label ->
+                FilterChip(selected = mode == i, onClick = { mode = i }, label = { Text(label) })
+            }
         }
+        if (mode == 2) {
+            WeekTable(d)
+        } else {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             d.standings.forEach { r ->
                 FilterChip(
@@ -681,6 +690,7 @@ private fun LazyListScope.scoringTab(d: Dashboard) {
                 }
             }
         }
+        }
         SectionTitle("Consistency", "Average score ± week-to-week standard deviation. Low spread means fewer duds.")
         val maxAvg = d.standings.maxOf { it.avg }
         Panel {
@@ -690,6 +700,55 @@ private fun LazyListScope.scoringTab(d: Dashboard) {
             }
             Spacer(Modifier.height(6.dp))
         }
+    }
+}
+
+/** One week's scores, every manager ranked highest to lowest, with a week picker. */
+@Composable
+private fun WeekTable(d: Dashboard) {
+    val weeks = remember(d) { d.games.map { it.week }.distinct().sorted() }
+    if (weeks.isEmpty()) {
+        Text("No finished weeks yet.", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    var week by rememberSaveable(weeks.last()) { mutableIntStateOf(weeks.last()) }
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+        weeks.forEach { w -> FilterChip(selected = week == w, onClick = { week = w }, label = { Text("Wk $w") }) }
+    }
+    val rows = d.games.filter { it.week == week }.sortedByDescending { it.points }
+    val avg = rows.map { it.points }.average()
+    Panel {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
+            PanelHeading("#", Modifier.width(28.dp))
+            PanelHeading("Manager", Modifier.weight(1f))
+            PanelHeading("All-play", Modifier.width(64.dp), TextAlign.End)
+            PanelHeading("Score", Modifier.width(84.dp), TextAlign.End)
+        }
+        PanelDivider()
+        rows.forEachIndexed { i, g ->
+            if (i > 0) PanelDivider()
+            // Their record that week if they'd played every other team.
+            val beat = rows.count { it.teamId != g.teamId && it.points < g.points }
+            val tied = rows.count { it.teamId != g.teamId && it.points == g.points }
+            val lost = rows.size - 1 - beat - tied
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("${i + 1}", Modifier.width(28.dp), style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = muted)
+                Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    TeamCell(g.team, d.logo(g.teamId), "vs ${g.opponent} ${fmt1(g.oppPoints)}")
+                }
+                Text(if (tied > 0) "$beat-$lost-$tied" else "$beat-$lost", Modifier.width(64.dp), textAlign = TextAlign.End,
+                    style = MaterialTheme.typography.bodySmall, color = muted)
+                Row(Modifier.width(84.dp), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                    ResultBadge(g.result)
+                    Text(fmt1(g.points), Modifier.padding(start = 6.dp), fontWeight = FontWeight.Bold,
+                        color = when (i) { 0 -> Good; rows.lastIndex -> Bad; else -> MaterialTheme.colorScheme.onSurface })
+                }
+            }
+        }
+        PanelDivider()
+        Text("League average ${fmt1(avg)} · high ${fmt1(rows.first().points)} · low ${fmt1(rows.last().points)}",
+            Modifier.padding(12.dp), style = MaterialTheme.typography.labelSmall, color = muted)
     }
 }
 
