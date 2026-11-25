@@ -607,7 +607,7 @@ private fun LineupInspector(d: Dashboard) {
 
 private fun LazyListScope.scoringTab(d: Dashboard) {
     item {
-        // 0 = weekly lines, 1 = cumulative lines, 2 = one week's scores as a ranked table.
+        // 0 = weekly lines, 1 = cumulative lines, 2 = one week's scores as a ranked table, 3 = heat map.
         var mode by rememberSaveable { mutableIntStateOf(0) }
         val cumulative = mode == 1
         // Running totals all climb together, so cumulative mode plots each team's
@@ -627,20 +627,23 @@ private fun LazyListScope.scoringTab(d: Dashboard) {
         }
         var selected by rememberSaveable { mutableStateOf(d.standings.first().team) }
         SectionTitle(
-            when (mode) { 1 -> "Season points vs. average"; 2 -> "Week by week"; else -> "Weekly scores" },
+            when (mode) { 1 -> "Season points vs. average"; 2 -> "Week by week"; 3 -> "Heat map"; else -> "Weekly scores" },
             when (mode) {
                 1 -> "Running total of points, above or below the league average. Tap a team to highlight it."
                 2 -> "Every manager's score for one week, highest first. All-play: their record that week against everyone."
+                3 -> "Each week's scores colored by where they ranked that week: green near the top, red near the bottom."
                 else -> "Tap a team to highlight it."
             },
         )
-        Row(Modifier.padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            listOf("Weekly", "Cumulative", "Week by week").forEachIndexed { i, label ->
+        Row(Modifier.horizontalScroll(rememberScrollState()).padding(bottom = 6.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf("Weekly", "Cumulative", "Week by week", "Heat map").forEachIndexed { i, label ->
                 FilterChip(selected = mode == i, onClick = { mode = i }, label = { Text(label) })
             }
         }
         if (mode == 2) {
             WeekTable(d)
+        } else if (mode == 3) {
+            HeatMap(d)
         } else {
         Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             d.standings.forEach { r ->
@@ -699,6 +702,81 @@ private fun LazyListScope.scoringTab(d: Dashboard) {
                 BarRow(r.team, (r.avg / maxAvg).toFloat(), "${r.avg.toInt()}±${r.stdDev.toInt()}", logo = d.logo(r.teamId))
             }
             Spacer(Modifier.height(6.dp))
+        }
+    }
+}
+
+/**
+ * Managers down the side, weeks across: each score tinted by its rank that
+ * week (green best, red worst), so streaks show at a glance. The last column
+ * is the average weekly rank.
+ */
+@Composable
+private fun HeatMap(d: Dashboard) {
+    val weeks = remember(d) { d.games.map { it.week }.distinct().sorted() }
+    if (weeks.isEmpty()) {
+        Text("No finished weeks yet.", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        return
+    }
+    // (team, week) -> (points, rank within the week, 1 = best)
+    val cells = remember(d) {
+        d.games.groupBy { it.week }.flatMap { (w, games) ->
+            games.sortedByDescending { it.points }.mapIndexed { i, g -> (g.teamId to w) to (g.points to i + 1) }
+        }.toMap()
+    }
+    val teams = remember(d) { d.standings.map { it.teamId to it.team } }
+    val n = teams.size
+    val avgRank = remember(cells) {
+        teams.associate { (id, _) -> id to weeks.mapNotNull { cells[id to it]?.second }.average() }
+    }
+    val scroll = rememberScrollState()
+    val neutral = MaterialTheme.colorScheme.surfaceContainerHigh
+    fun tint(rank: Int): Color {
+        val f = if (n > 1) (rank - 1).toFloat() / (n - 1) else 0.5f // 0 best .. 1 worst
+        return if (f <= 0.5f) androidx.compose.ui.graphics.lerp(Good, neutral, f * 2) else androidx.compose.ui.graphics.lerp(neutral, Bad, (f - 0.5f) * 2)
+    }
+    val cellW = 44.dp
+    Panel {
+        Row(Modifier.padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+            PanelHeading("Manager", Modifier.width(120.dp).padding(start = 12.dp))
+            Row(Modifier.weight(1f).horizontalScroll(scroll)) {
+                weeks.forEach { w -> PanelHeading("$w", Modifier.width(cellW), TextAlign.Center) }
+                PanelHeading("Avg #", Modifier.width(52.dp), TextAlign.Center)
+            }
+        }
+        PanelDivider()
+        teams.forEach { (id, name) ->
+            Row(Modifier.padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.width(120.dp).padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    TeamLogo(d.logo(id), name, 22.dp, Modifier.padding(end = 6.dp), CircleShape)
+                    Text(d.abbrev(id), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                }
+                Row(Modifier.weight(1f).horizontalScroll(scroll)) {
+                    weeks.forEach { w ->
+                        val cell = cells[id to w]
+                        Box(
+                            Modifier.width(cellW).height(30.dp).padding(1.dp).clip(RoundedCornerShape(4.dp))
+                                .background(cell?.let { tint(it.second) } ?: Color.Transparent),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(cell?.first?.toInt()?.toString() ?: "–", style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (cell?.second == 1) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+                    Text(
+                        avgRank[id]?.takeIf { !it.isNaN() }?.let { fmt1(it) } ?: "–",
+                        Modifier.width(52.dp).align(Alignment.CenterVertically), textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
+        }
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text("Best", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            (1..n).forEach { r ->
+                Box(Modifier.padding(horizontal = 1.dp).size(width = 14.dp, height = 10.dp).clip(RoundedCornerShape(2.dp)).background(tint(r)))
+            }
+            Text("Worst", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
