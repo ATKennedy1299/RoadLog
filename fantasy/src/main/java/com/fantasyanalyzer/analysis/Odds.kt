@@ -22,7 +22,19 @@ data class PlayoffOddsRow(
     /** Playoff chances if the team wins / loses its next game; null with no regular-season games left. */
     val ifWinNext: Double?,
     val ifLoseNext: Double?,
-)
+    /** Regular-season games left for this team. */
+    val gamesLeft: Int = 0,
+    /** Playoff chances by how many of their remaining games they win (index = wins); null where no simulation landed. */
+    val byWinsLeft: List<Double?> = emptyList(),
+) {
+    /** Made the playoffs in every simulated season. */
+    val clinched: Boolean get() = playoffPct >= 1.0
+    /** Missed the playoffs in every simulated season. */
+    val eliminated: Boolean get() = playoffPct <= 0.0
+
+    /** Fewest remaining wins that make the playoffs near-certain (99%+ of simulations); null if none do. */
+    val magicWins: Int? get() = if (clinched) 0 else byWinsLeft.indexOfFirst { it != null && it >= 0.99 }.takeIf { it >= 0 }
+}
 
 data class PlayoffOdds(
     val rows: List<PlayoffOddsRow>,
@@ -106,6 +118,10 @@ object Odds {
         val away = IntArray(remaining.size) { index.getValue(remaining[it].awayId!!) }
         // Each team's next game, as an index into remaining.
         val nextGame = IntArray(n) { i -> remaining.indices.firstOrNull { home[it] == i || away[it] == i } ?: -1 }
+        val left = IntArray(n) { i -> remaining.indices.count { home[it] == i || away[it] == i } }
+        // [team][remaining wins] -> seasons simulated / playoff trips, for "win k more and you're in".
+        val byWinsCount = Array(n) { IntArray(left[it] + 1) }
+        val byWinsMade = Array(n) { IntArray(left[it] + 1) }
 
         val spots = league.playoffTeamCount.coerceIn(1, n)
         val bracketSize = Integer.highestOneBit(spots).let { if (it == spots) it else it * 2 }
@@ -157,6 +173,9 @@ object Odds {
             }
             for (i in 0 until n) {
                 winsSum[i] += w[i]
+                val k = (w[i] - wins[i]).toInt().coerceIn(0, left[i]) // ties count as half: round down
+                byWinsCount[i][k]++
+                if (i in seeds) byWinsMade[i][k]++
                 if (nextGame[i] >= 0) {
                     val inPlayoffs = i in seeds
                     if (wonNext[i]) { countIfWin[i]++; if (inPlayoffs) madeIfWin[i]++ } else { countIfLose[i]++; if (inPlayoffs) madeIfLose[i]++ }
@@ -192,6 +211,8 @@ object Odds {
                 avgSeed = if (made[i] > 0) seedSum[i].toDouble() / made[i] else Double.NaN,
                 ifWinNext = if (countIfWin[i] > 0) madeIfWin[i].toDouble() / countIfWin[i] else null,
                 ifLoseNext = if (countIfLose[i] > 0) madeIfLose[i].toDouble() / countIfLose[i] else null,
+                gamesLeft = left[i],
+                byWinsLeft = (0..left[i]).map { k -> byWinsCount[i][k].takeIf { it > 0 }?.let { byWinsMade[i][k].toDouble() / it } },
             )
         }.sortedWith(compareByDescending<PlayoffOddsRow> { it.playoffPct }.thenByDescending { it.champPct ?: 0.0 }.thenByDescending { it.projectedWins })
         return PlayoffOdds(rows, spots, byes, simulations, remaining.size, usesDivisions)

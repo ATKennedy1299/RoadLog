@@ -232,7 +232,8 @@ fun PlayerSheet(p: Player, d: Dashboard, weeks: Map<Int, com.fantasyanalyzer.dat
             }
             p.statLine?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
 
-            val seasonWeeks = weeks ?: d.data.outlook?.seasons?.get(p.id)
+            val lines = remember(d, p.id, weeks) { playerWeekLines(d, p, weeks) }
+            val seasonWeeks = lines.takeIf { it.isNotEmpty() }
             val form = seasonWeeks?.let { SeasonForm.of(it, d.league.currentScoringPeriod) }
             when {
                 form != null -> SeasonFormSection(form)
@@ -244,7 +245,7 @@ fun PlayerSheet(p: Player, d: Dashboard, weeks: Map<Int, com.fantasyanalyzer.dat
             }
 
             // The whole season, ESPN game-log style, with how tough each opponent is for this position.
-            val rows = seasonSchedule(d, p, weeks.orEmpty())
+            val rows = seasonSchedule(d, p, lines)
             val played = rows.mapNotNull { it.points }
             if (rows.isNotEmpty()) {
                 SectionTitle(
@@ -314,6 +315,28 @@ private class ScheduleRow(val week: Int, val opponent: String, val rank: Int?, v
  * season rank against the position, and points/projection from the league's
  * box scores for weeks already played.
  */
+/**
+ * Everything known about [p] week by week, best source first: his player card,
+ * then the season stats saved with the rosters and free agent lists (the only
+ * source for most free agents), then the league's box scores.
+ */
+private fun playerWeekLines(d: Dashboard, p: Player, card: Map<Int, com.fantasyanalyzer.data.WeekLine>?): Map<Int, com.fantasyanalyzer.data.WeekLine> {
+    val box = d.data.boxScores.flatMap { (matchupWeek, rosters) ->
+        val nflWeek = d.league.matchupPeriods[matchupWeek]?.singleOrNull() ?: matchupWeek
+        rosters.values.flatten().filter { it.playerId == p.id }
+            .map { nflWeek to com.fantasyanalyzer.data.WeekLine(it.points, it.projected, null) }
+    }.toMap()
+    val saved = d.data.outlook?.seasons?.get(p.id).orEmpty()
+    val c = card.orEmpty()
+    return (c.keys + saved.keys + box.keys).associateWith { w ->
+        com.fantasyanalyzer.data.WeekLine(
+            actual = c[w]?.actual ?: saved[w]?.actual ?: box[w]?.actual,
+            projected = c[w]?.projected ?: saved[w]?.projected ?: box[w]?.projected,
+            statLine = c[w]?.statLine ?: saved[w]?.statLine,
+        )
+    }
+}
+
 private fun seasonSchedule(d: Dashboard, p: Player, card: Map<Int, com.fantasyanalyzer.data.WeekLine>): List<ScheduleRow> {
     val league = d.league
     // NFL week -> this player's box score line, from whichever fantasy roster had them.
@@ -449,29 +472,6 @@ private fun BreakdownRow(label: String, per: String, count: String, score: Strin
 /** 0.1, 1, 34, -2: no trailing ".0" on whole numbers. */
 private fun trim(v: Double): String =
     if (v == Math.rint(v)) v.toLong().toString() else String.format(Locale.US, "%.2f", v).trimEnd('0').trimEnd('.')
-
-/** Player id -> season form, for the rows that show it. */
-val LocalSeasonForms = staticCompositionLocalOf<Map<Long, SeasonForm>> { emptyMap() }
-
-/** "Beat proj 5/6 · Steady" under a player's name; nothing until he has a finished week. */
-@Composable
-fun FormTag(p: Player) {
-    val form = LocalSeasonForms.current[p.id] ?: return
-    val share = form.beat.toDouble() / form.games
-    Text(
-        buildAnnotatedString {
-            withStyle(SpanStyle(color = when { share >= 0.6 -> Good; share <= 0.4 -> Bad; else -> MaterialTheme.colorScheme.onSurfaceVariant },
-                fontWeight = FontWeight.SemiBold)) { append("Beat proj ${form.beat}/${form.games}") }
-            form.style?.let { st ->
-                withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant)) { append(" · ") }
-                withStyle(SpanStyle(color = if (st == ScoringStyle.STEADY) Good else Warn, fontWeight = FontWeight.SemiBold)) {
-                    append(st.label)
-                }
-            }
-        },
-        style = MaterialTheme.typography.labelSmall, maxLines = 1,
-    )
-}
 
 /** Player sheet section: a hit/miss dot per week, the beat record, and floor / typical / ceiling. */
 @Composable

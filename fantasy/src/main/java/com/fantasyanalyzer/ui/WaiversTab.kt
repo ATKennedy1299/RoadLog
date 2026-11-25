@@ -416,7 +416,6 @@ private fun AvailableRow(p: Player, now: Long, enabled: Boolean, nextUpFor: Play
                     Text("NEXT UP for ${shortName(it.name)}", style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
                         color = Good, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                FormTag(p)
             }
         }
         Box(Modifier.width(56.dp).fillMaxHeight().background(MaterialTheme.colorScheme.surfaceContainerHigh),

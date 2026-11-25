@@ -2,6 +2,11 @@
 
 package com.fantasyanalyzer.ui
 
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import com.fantasyanalyzer.analysis.PositionEdge
+import com.fantasyanalyzer.analysis.Needs
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.ExperimentalAnimationApi
 import androidx.compose.animation.fadeIn
@@ -121,14 +126,14 @@ internal fun MatchupTab(
         }
         // A fresh pager per week, so swiping always drives the week on screen.
         key(week) {
-            WeekMatchups(d, matchups, weekLineups[week])
+            WeekMatchups(d, matchups, weekLineups[week], myTeam)
         }
     }
 }
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun WeekMatchups(d: Dashboard, matchups: List<Matchup>, lineups: WeekLineups?) {
+private fun WeekMatchups(d: Dashboard, matchups: List<Matchup>, lineups: WeekLineups?, myTeam: Int?) {
     val league = d.league
     val now = remember(d, lineups) { System.currentTimeMillis() }
     val rosters = (lineups as? WeekLineups.Loaded)?.rosters
@@ -188,6 +193,17 @@ private fun WeekMatchups(d: Dashboard, matchups: List<Matchup>, lineups: WeekLin
         }
     }
 
+    // Before kickoff: how the two teams compare coming in.
+    if (away != null && !v.matchup.complete && v.home.actual == 0.0 && away.actual == 0.0) {
+        PreviewCard(d, v.home.teamId, away.teamId)
+    }
+    if (rosters != null && away != null) {
+        val needs = remember(v, now) { Matchups.needs(v, now) }
+        needs?.let { NeedsLine(it, if (v.home.teamId == myTeam) null else league.teamName(v.home.teamId)) }
+        val edges = remember(v, now) { Matchups.positionEdges(v, now) }
+        if (edges.isNotEmpty()) EdgeStrip(edges, final = v.matchup.complete)
+    }
+
     when {
         lineups == null || lineups is WeekLineups.Loading -> Row(
             Modifier.fillMaxWidth().padding(24.dp), horizontalArrangement = Arrangement.Center,
@@ -207,6 +223,85 @@ private fun WeekMatchups(d: Dashboard, matchups: List<Matchup>, lineups: WeekLin
             // The bench follows straight on; the gap and BE in the middle mark where it starts.
             if (v.bench.isNotEmpty()) {
                 LineupPanel(v.bench, now, Modifier.padding(top = 14.dp))
+            }
+        }
+    }
+}
+
+/** "You need 24.5 from 3 players (8.2 each)" — what it takes to pass their projected total. */
+@Composable
+private fun NeedsLine(n: Needs, team: String?) {
+    val who = team ?: "You"
+    val verb = if (team == null) "need" else "needs"
+    Text(
+        buildAnnotatedString {
+            if (n.points <= 0) {
+                append("$who ${if (team == null) "are" else "is"} already past their projected ${fmt1(n.target)}")
+                append(" with ${n.players} still to play.")
+            } else {
+                append("$who $verb ")
+                withStyle(SpanStyle(fontWeight = FontWeight.Bold)) { append(fmt1(n.points)) }
+                append(" from ${n.players} player${if (n.players == 1) "" else "s"}")
+                if (n.players > 1) append(" (${fmt1(n.perPlayer)} each)")
+                append(" to pass their projected ${fmt1(n.target)}.")
+            }
+        },
+        Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+        style = MaterialTheme.typography.bodySmall,
+        color = if (n.points <= 0) Good else MaterialTheme.colorScheme.onSurface,
+    )
+}
+
+/** Records, standing, scoring and form side by side, plus how their earlier meetings went. */
+@Composable
+private fun PreviewCard(d: Dashboard, homeId: Int, awayId: Int) {
+    val h = d.standings.firstOrNull { it.teamId == homeId } ?: return
+    val a = d.standings.firstOrNull { it.teamId == awayId } ?: return
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    val meetings = d.games.filter { it.teamId == homeId && it.oppId == awayId }.sortedBy { it.week }
+    Panel(Modifier.padding(vertical = 6.dp)) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            PanelHeading("Preview")
+            listOf(
+                Triple("Record", h.record.toString(), a.record.toString()),
+                Triple("Standing", ordinal(h.rank), ordinal(a.rank)),
+                Triple("Power", "#${h.powerRank}", "#${a.powerRank}"),
+                Triple("Avg score", fmt1(h.avg), fmt1(a.avg)),
+                Triple("Last 3 avg", fmt1(h.recentAvg), fmt1(a.recentAvg)),
+            ).forEach { (label, hv, av) ->
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(hv, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                    Text(label, Modifier.weight(1f), style = MaterialTheme.typography.labelSmall, color = muted, textAlign = TextAlign.Center)
+                    Text(av, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.End)
+                }
+            }
+            Text(
+                if (meetings.isEmpty()) "First meeting this season."
+                else "This season: " + meetings.joinToString(" · ") { "Wk ${it.week} ${it.result} ${fmt1(it.points)}–${fmt1(it.oppPoints)}" },
+                Modifier.padding(top = 4.dp), style = MaterialTheme.typography.labelSmall, color = muted,
+            )
+        }
+    }
+}
+
+/** QB +6.2 · RB −4.1 · ... — where the left team leads or trails, by position. */
+@Composable
+private fun EdgeStrip(edges: List<PositionEdge>, final: Boolean) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)) {
+        Text(if (final) "POSITION EDGE · FINAL" else "POSITION EDGE · PROJECTED", style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth().padding(top = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            edges.forEach { e ->
+                val color = when { e.edge > 0.05 -> Good; e.edge < -0.05 -> Bad; else -> MaterialTheme.colorScheme.onSurfaceVariant }
+                Column(
+                    Modifier.weight(1f).clip(RoundedCornerShape(8.dp)).background(color.copy(alpha = 0.14f)).padding(vertical = 4.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                ) {
+                    Text(e.position, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(String.format(java.util.Locale.US, "%+.1f", e.edge), style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold, color = color, maxLines = 1)
+                }
             }
         }
     }

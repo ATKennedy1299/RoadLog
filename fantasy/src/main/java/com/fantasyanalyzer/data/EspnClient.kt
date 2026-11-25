@@ -88,22 +88,23 @@ class EspnClient(
     }
 
     /** One player's whole season, week by week (ESPN's player card data). */
-    fun playerCard(playerId: Long): JSONObject = cached("card3-$playerId", reuseFor = THIRTY_MINUTES) {
+    fun playerCard(playerId: Long): JSONObject = cached("card4-$playerId", reuseFor = THIRTY_MINUTES) {
         cards(listOf(playerId))
     }
 
     /** Rostered players' seasons so far, week by week, in one request. Refreshed every few hours. */
-    fun seasonStats(week: Int, playerIds: Collection<Long>): JSONObject = cached("season2-$week", reuseFor = SIX_HOURS) {
+    fun seasonStats(week: Int, playerIds: Collection<Long>): JSONObject = cached("season3-$week", reuseFor = SIX_HOURS) {
         cards(playerIds.sorted())
     }
 
     /**
-     * Player cards with every week's actual points and ESPN projection named
+     * Players with every week's actual points and ESPN projection named
      * explicitly: the "top scoring periods" filter alone returns actuals but
      * not past weeks' projections, which the season form needs.
      */
     private fun cards(ids: List<Long>): JSONObject = get(
-        listOf("view" to "kona_playercard"),
+        // kona_player_info, the view the free agent list uses (and which returns these weekly sets).
+        listOf("view" to "kona_player_info"),
         filter = """{"players":{"filterIds":{"value":[${ids.joinToString(",")}]},"limit":${ids.size.coerceAtLeast(1)},""" +
             """"filterStatsForTopScoringPeriodIds":{"value":18,"additionalValue":[${seasonStatIds(18)}]}}}""",
     )

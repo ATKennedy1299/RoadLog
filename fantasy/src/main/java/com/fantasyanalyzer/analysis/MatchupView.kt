@@ -4,6 +4,7 @@ import com.fantasyanalyzer.data.BENCH
 import com.fantasyanalyzer.data.IR
 import com.fantasyanalyzer.data.League
 import com.fantasyanalyzer.data.Matchup
+import com.fantasyanalyzer.data.Player
 import com.fantasyanalyzer.data.RosterSpot
 import com.fantasyanalyzer.data.slotName
 import kotlin.math.sqrt
@@ -37,7 +38,46 @@ fun Matchup.orientedFor(teamId: Int?): Matchup =
         winner = when (winner) { "HOME" -> "AWAY"; "AWAY" -> "HOME"; else -> winner },
     )
 
+/** What the left team needs from its starters still to play to pass the other side's projected total. */
+data class Needs(val points: Double, val players: Int, val target: Double) {
+    val perPlayer: Double get() = points / players
+}
+
+/** One position's points for each side of a matchup (projected, live, or final). */
+data class PositionEdge(val position: String, val home: Double, val away: Double) {
+    val edge: Double get() = home - away
+}
+
 object Matchups {
+    private val EDGE_ORDER = listOf("QB", "RB", "WR", "TE", "K", "D/ST")
+
+    /**
+     * Points the left (home) side still needs, and from how many starters, to
+     * pass the other side's projected final. Null once there's nobody left to
+     * play, the matchup is over, or there's no opponent or projection.
+     */
+    fun needs(v: MatchupView, now: Long): Needs? {
+        if (v.matchup.complete) return null
+        val target = v.away?.projected ?: return null
+        val left = v.starters.mapNotNull { it.home?.player }.filter { !it.isOut && it.remainingShare(now) > 0.0 }
+        if (left.isEmpty()) return null
+        return Needs(target - v.home.actual, left.size, target)
+    }
+
+    /**
+     * Starters' points by position for both sides: final points for a finished
+     * matchup, otherwise points so far plus what's projected for the rest.
+     */
+    fun positionEdges(v: MatchupView, now: Long): List<PositionEdge> {
+        fun value(p: Player) = if (v.matchup.complete) p.actual ?: 0.0 else p.expectedFinal(now)
+        val home = v.starters.mapNotNull { it.home?.player }.groupBy { it.position }
+        val away = v.starters.mapNotNull { it.away?.player }.groupBy { it.position }
+        return (EDGE_ORDER + (home.keys + away.keys).filter { it !in EDGE_ORDER }).mapNotNull { pos ->
+            if (pos !in home && pos !in away) return@mapNotNull null
+            PositionEdge(pos, home[pos].orEmpty().sumOf { value(it) }, away[pos].orEmpty().sumOf { value(it) })
+        }
+    }
+
     /** ESPN's lineup order: QB, RB, RB/WR, WR, WR/TE, TE, FLEX, OP, IDP slots, D/ST, K, P, HC. */
     private val SLOT_ORDER = listOf(0, 1, 2, 3, 4, 5, 6, 23, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 24)
 

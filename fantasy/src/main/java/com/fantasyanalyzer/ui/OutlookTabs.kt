@@ -153,7 +153,14 @@ internal fun LazyListScope.playoffsTab(d: Dashboard, myTeam: Int?) {
                             Column {
                                 Text(r.team, fontWeight = if (mine) FontWeight.Bold else FontWeight.SemiBold,
                                     style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                Text(r.record.toString(), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(r.record.toString(), style = MaterialTheme.typography.labelSmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    when {
+                                        r.clinched -> StatusTag("CLINCHED", Good)
+                                        r.eliminated -> StatusTag("OUT", Bad)
+                                    }
+                                }
                             }
                         }
                         OddsCell(fmt1(r.projectedWins))
@@ -231,6 +238,15 @@ private fun oddsColor(p: Double): Color = when {
 }
 
 @Composable
+private fun StatusTag(text: String, color: Color) {
+    Text(
+        text, Modifier.padding(start = 6.dp).clip(RoundedCornerShape(4.dp)).background(color.copy(alpha = 0.18f))
+            .padding(horizontal = 4.dp, vertical = 1.dp),
+        style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = color,
+    )
+}
+
+@Composable
 private fun OddsCell(text: String, color: Color = Color.Unspecified, bold: Boolean = false) {
     Text(text, Modifier.width(58.dp), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.End, color = color,
         fontWeight = if (bold) FontWeight.Bold else FontWeight.Normal)
@@ -253,6 +269,29 @@ private fun MyOddsCard(d: Dashboard, r: PlayoffOddsRow, hasByes: Boolean) {
                 )
                 Text(extras.joinToString(" · "), style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // What it takes: wins needed from here, and the odds at each win total.
+                when {
+                    r.clinched -> Text("Clinched: in the playoffs in every simulated season.",
+                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Good,
+                        modifier = Modifier.padding(top = 4.dp))
+                    r.eliminated -> Text("Eliminated: no simulated season gets you in.",
+                        style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = Bad,
+                        modifier = Modifier.padding(top = 4.dp))
+                    r.gamesLeft > 0 -> {
+                        Text(
+                            r.magicWins?.let { k ->
+                                "Win $k of your last ${r.gamesLeft} and you're in (99%+ of simulations)."
+                            } ?: "Even winning out isn't a lock: you'll need help.",
+                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                        Text(
+                            r.byWinsLeft.withIndex().filter { it.value != null }
+                                .joinToString(" · ") { (k, odds) -> "$k W: ${pct(odds!!)}" },
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
                 if (r.ifWinNext != null && r.ifLoseNext != null) {
                     Text(
                         buildAnnotatedString {

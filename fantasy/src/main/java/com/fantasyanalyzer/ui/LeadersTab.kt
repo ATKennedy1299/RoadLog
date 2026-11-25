@@ -60,6 +60,27 @@ private val POSITION_COLUMNS = mapOf(
     "D/ST" to listOf(stat("SACK", 99), stat("INT", 95), stat("FR", 96), stat("TD", 105), stat("PA", 120)),
 )
 
+/**
+ * Each player's share of his NFL team's targets and carries, in percent, among
+ * the RBs, WRs and TEs loaded here (the top 50 at each, which covers nearly all
+ * of a team's touches).
+ */
+private class Shares(val targets: Map<Long, Double> = emptyMap(), val carries: Map<Long, Double> = emptyMap()) {
+    companion object {
+        fun of(leaders: List<Leader>): Shares {
+            val skill = leaders.filter { it.player.position in setOf("RB", "WR", "TE") }.distinctBy { it.player.id }
+            fun share(stat: Int): Map<Long, Double> {
+                val team = skill.groupBy { it.player.proTeam }.mapValues { (_, l) -> l.sumOf { it.stats[stat] ?: 0.0 } }
+                return skill.mapNotNull { l ->
+                    val total = team[l.player.proTeam] ?: 0.0
+                    if (total <= 0.0) null else l.player.id to 100.0 * (l.stats[stat] ?: 0.0) / total
+                }.toMap()
+            }
+            return Shares(share(58), share(23))
+        }
+    }
+}
+
 private const val ALL = "All"
 private val CELL = 56.dp
 
@@ -98,7 +119,7 @@ internal fun LeadersScreen(d: Dashboard, myTeam: Int?, actions: LeadersActions) 
                     onClick = {
                         position = p
                         // Keep the sort if the new position has that column; otherwise back to points.
-                        if (columnsFor(p).none { it.label == sortBy }) { sortBy = "FPTS"; ascending = false }
+                        if (columnsFor(p, Shares()).none { it.label == sortBy }) { sortBy = "FPTS"; ascending = false }
                     },
                     label = { Text(p) },
                 )
@@ -118,7 +139,10 @@ internal fun LeadersScreen(d: Dashboard, myTeam: Int?, actions: LeadersActions) 
             ) { CircularProgressIndicator() }
             state.error != null -> Text(state.error, Modifier.padding(vertical = 16.dp), color = muted)
             else -> {
-                val columns = columnsFor(position)
+                val shares = remember(state, recentOnly) {
+                    Shares.of(state.byPosition.values.flatten().mapNotNull { if (recentOnly) it.recentOnly() else it })
+                }
+                val columns = columnsFor(position, shares)
                 val sortColumn = columns.firstOrNull { it.label == sortBy } ?: columns.first()
                 val rows = remember(state, position, sortBy, ascending, recentOnly, owner) {
                     val pool = (if (position == ALL) state.byPosition.values.flatten() else state.byPosition[position].orEmpty())
@@ -145,7 +169,8 @@ internal fun LeadersScreen(d: Dashboard, myTeam: Int?, actions: LeadersActions) 
                 }
                 Text(
                     (if (recentOnly) "Last ${Leader.RECENT_WEEKS} finished weeks" else "Season totals") +
-                        " from ESPN, among the season's top 50 at each position. Tap a column to sort; tap again to flip.",
+                        " from ESPN, among the season's top 50 at each position. TGT% / CAR%: share of his NFL team's" +
+                        " targets / carries among those players. Tap a column to sort; tap again to flip.",
                     Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelSmall, color = muted,
                 )
             }
@@ -153,7 +178,16 @@ internal fun LeadersScreen(d: Dashboard, myTeam: Int?, actions: LeadersActions) 
     }
 }
 
-private fun columnsFor(position: String): List<StatColumn> = COMMON + POSITION_COLUMNS[position].orEmpty()
+private fun columnsFor(position: String, shares: Shares): List<StatColumn> {
+    val tgt = StatColumn("TGT%") { shares.targets[it.player.id] }
+    val car = StatColumn("CAR%") { shares.carries[it.player.id] }
+    val extra = when (position) {
+        "RB" -> listOf(car, tgt)
+        "WR", "TE" -> listOf(tgt)
+        else -> emptyList()
+    }
+    return COMMON + POSITION_COLUMNS[position].orEmpty() + extra
+}
 
 @Composable
 private fun LeadersTable(
