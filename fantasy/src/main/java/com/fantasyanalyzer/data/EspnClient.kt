@@ -88,26 +88,15 @@ class EspnClient(
     }
 
     /** One player's whole season, week by week (ESPN's player card data). */
-    fun playerCard(playerId: Long): JSONObject = cached("card4-$playerId", reuseFor = THIRTY_MINUTES) {
-        cards(listOf(playerId))
+    fun playerCard(playerId: Long): JSONObject = cached("card5-$playerId", reuseFor = THIRTY_MINUTES) {
+        // Checked against ESPN: kona_playercard with every week's projection named returns all
+        // weeks' actuals and projections. kona_player_info with filterIds, or any "limit", is a 400.
+        get(
+            listOf("view" to "kona_playercard"),
+            filter = """{"players":{"filterIds":{"value":[$playerId]},""" +
+                """"filterStatsForTopScoringPeriodIds":{"value":18,"additionalValue":[${seasonStatIds(18)}]}}}""",
+        )
     }
-
-    /** Rostered players' seasons so far, week by week, in one request. Refreshed every few hours. */
-    fun seasonStats(week: Int, playerIds: Collection<Long>): JSONObject = cached("season3-$week", reuseFor = SIX_HOURS) {
-        cards(playerIds.sorted())
-    }
-
-    /**
-     * Players with every week's actual points and ESPN projection named
-     * explicitly: the "top scoring periods" filter alone returns actuals but
-     * not past weeks' projections, which the season form needs.
-     */
-    private fun cards(ids: List<Long>): JSONObject = get(
-        // kona_player_info, the view the free agent list uses (and which returns these weekly sets).
-        listOf("view" to "kona_player_info"),
-        filter = """{"players":{"filterIds":{"value":[${ids.joinToString(",")}]},"limit":${ids.size.coerceAtLeast(1)},""" +
-            """"filterStatsForTopScoringPeriodIds":{"value":18,"additionalValue":[${seasonStatIds(18)}]}}}""",
-    )
 
     /** ESPN stat set ids (source + split + season + week): season totals, then each week's actual and projection. */
     private fun seasonStatIds(throughWeek: Int): String =
@@ -118,20 +107,20 @@ class EspnClient(
      * The season's top fantasy scorers who can fill [slotId], rostered or not,
      * with their season totals. Refreshed every few hours.
      */
-    fun leaders(week: Int, slotId: Int, limit: Int = 50): JSONObject = cached("leaders2-$week-$slotId", reuseFor = SIX_HOURS) {
-        // Season totals plus each recent week's actuals, for the "Last 3" view.
-        val ids = (listOf("00$year") + Leader.recentWeeks(week).map { "01$year$it" }).joinToString(",") { "\"$it\"" }
+    fun leaders(week: Int, slotId: Int, limit: Int = 50): JSONObject = cached("leaders3-$week-$slotId", reuseFor = SIX_HOURS) {
+        // Season totals, plus his latest games' actuals for the "Last 3" view.
         get(
             listOf("view" to "kona_player_info", "scoringPeriodId" to week.toString()),
             filter = """{"players":{"filterSlotIds":{"value":[$slotId]},"limit":$limit,"offset":0,""" +
                 """"sortAppliedStatTotal":{"sortAsc":false,"sortPriority":1,"value":"00$year"},""" +
                 """"sortPercOwned":{"sortPriority":2,"sortAsc":false},""" +
-                """"filterStatsForTopScoringPeriodIds":{"value":1,"additionalValue":[$ids]}}}""",
+                // "value" is how many of the latest weeks' actuals ESPN sends; naming weeks doesn't add more.
+                """"filterStatsForTopScoringPeriodIds":{"value":${Leader.RECENT_WEEKS},"additionalValue":["00$year"]}}}""",
         )
     }
 
     /** Free agents and waiver players who can fill [slotId], most-owned first. */
-    fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = cached("fa4-$week-$slotId") { freeAgentsNet(week, slotId, limit) }
+    fun freeAgents(week: Int, slotId: Int, limit: Int = 40): JSONObject = cached("fa5-$week-$slotId") { freeAgentsNet(week, slotId, limit) }
 
     private fun freeAgentsNet(week: Int, slotId: Int, limit: Int): JSONObject {
         // ESPN stat set ids are source + split + season (+ week): every week's actual
@@ -143,7 +132,9 @@ class EspnClient(
                 """"filterSlotIds":{"value":[$slotId]},"limit":$limit,"offset":0,""" +
                 """"sortPercOwned":{"sortPriority":1,"sortAsc":false},""" +
                 """"sortDraftRanks":{"sortPriority":100,"sortAsc":true,"value":"STANDARD"},""" +
-                """"filterStatsForTopScoringPeriodIds":{"value":3,"additionalValue":[$faStatIds]}}}""",
+                // "value" caps how many weeks of actual points come back (3 gave only the last 3);
+                // projections come from the named ids.
+                """"filterStatsForTopScoringPeriodIds":{"value":18,"additionalValue":[$faStatIds]}}}""",
         )
     }
 
@@ -247,12 +238,10 @@ class EspnClient(
                     emptyList()
                 }
             }.distinctBy { it.id }.map { p -> scoreboard[p.proTeam]?.let { p.copy(game = it) } ?: p }
-            onProgress("Loading season form…")
-            val rostered = rosters.values.flatten().map { it.player.id }
-            val seasons = optional(emptyMap()) { EspnParser.parseSeasons(seasonStats(week, rostered), year) } +
-                positionSlots.flatMap { slot -> optional(emptyMap<Long, Map<Int, WeekLine>>()) {
-                    EspnParser.parseSeasons(freeAgents(week, slot), year)
-                }.entries }.associate { it.key to it.value }
+            // Free agents' weeks come with their list; rostered players' from their card when opened.
+            val seasons = positionSlots.flatMap { slot ->
+                optional(emptyMap<Long, Map<Int, WeekLine>>()) { EspnParser.parseSeasons(freeAgents(week, slot), year) }.entries
+            }.associate { it.key to it.value }
             WeekOutlook(week, rosters, freeAgents, seasons) to scoreboard
         } catch (e: EspnException) {
             null

@@ -35,11 +35,11 @@ class LeadersTest {
         assertEquals(3, chase.fantasyTeamId)
         assertNull(leaders[0].fantasyTeamId) // free agent
 
-        // Last 3 finished weeks before week 10: 7, 8, 9 (he had no week 7 entry, a bye).
+        // His last 3 games before week 10: weeks 9, 8 and 6 (a week 7 bye doesn't count; week 10 is in progress).
         val recent = chase.recentOnly()!!
-        assertEquals(32.5, recent.points, 1e-9)
-        assertEquals(2, recent.games)
-        assertEquals(150.0, recent.stats.getValue(42), 1e-9)
+        assertEquals(62.5, recent.points, 1e-9)
+        assertEquals(3, recent.games)
+        assertEquals(200.0, recent.stats.getValue(42), 1e-9)
         assertNull(leaders[0].recentOnly()) // no weekly stats sent for him
     }
 }

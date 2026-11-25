@@ -306,11 +306,12 @@ object EspnParser {
         val points = total.optDouble("appliedTotal", 0.0).orZero()
         if (points == 0.0) return@mapNotNull null
         val totals = numbers(total.optJSONObject("stats"))
-        // The last few finished weeks, summed: weekly actuals of this season.
-        val recentWeeks = Leader.recentWeeks(week).toSet()
+        // His last few games before this week, summed (ESPN sends his latest games played, so byes don't count).
         val recentEntries = weekly(stats, year)
-            .filter { it.optInt("statSourceId", -1) == ACTUAL && it.optInt("scoringPeriodId") in recentWeeks }
+            .filter { it.optInt("statSourceId", -1) == ACTUAL && it.optInt("scoringPeriodId") < week }
             .distinctBy { it.optInt("scoringPeriodId") }
+            .sortedByDescending { it.optInt("scoringPeriodId") }
+            .take(Leader.RECENT_WEEKS)
         val recent = recentEntries.takeIf { it.isNotEmpty() }?.let { entries ->
             val sums = mutableMapOf<Int, Double>()
             entries.forEach { en -> numbers(en.optJSONObject("stats")).forEach { (k, v) -> sums[k] = (sums[k] ?: 0.0) + v } }

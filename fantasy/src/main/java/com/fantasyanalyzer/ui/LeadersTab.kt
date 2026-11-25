@@ -168,7 +168,7 @@ internal fun LeadersScreen(d: Dashboard, myTeam: Int?, actions: LeadersActions) 
                     Text("Nobody here matches.", Modifier.padding(vertical = 12.dp), color = muted)
                 }
                 Text(
-                    (if (recentOnly) "Last ${Leader.RECENT_WEEKS} finished weeks" else "Season totals") +
+                    (if (recentOnly) "Each player's last ${Leader.RECENT_WEEKS} games" else "Season totals") +
                         " from ESPN, among the season's top 50 at each position. TGT% / CAR%: share of his NFL team's" +
                         " targets / carries among those players. Tap a column to sort; tap again to flip.",
                     Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelSmall, color = muted,

@@ -11,7 +11,7 @@ data class Leader(
     val stats: Map<Int, Double>,
     /** The league team that has him, or null for a free agent. */
     val fantasyTeamId: Int?,
-    /** The same, summed over the last few finished weeks (see [Leader.RECENT_WEEKS]); null when he didn't play. */
+    /** The same, summed over his last few games (see [Leader.RECENT_WEEKS]); null when he hasn't played. */
     val recent: Recent? = null,
 ) {
     data class Recent(val points: Double, val games: Int, val stats: Map<Int, Double>)
@@ -28,11 +28,8 @@ data class Leader(
         /** ESPN's games-played stat. */
         const val GAMES_PLAYED = 210
 
-        /** How many finished weeks the "recent" view covers. */
+        /** How many of his latest games the "recent" view covers. */
         const val RECENT_WEEKS = 3
-
-        /** The finished weeks the recent view covers, given the week in progress. */
-        fun recentWeeks(currentWeek: Int): List<Int> = ((currentWeek - RECENT_WEEKS) until currentWeek).filter { it > 0 }
     }
 }
 
