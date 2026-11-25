@@ -2,6 +2,8 @@
 
 package com.fantasyanalyzer.ui
 
+import com.fantasyanalyzer.analysis.WeeklyRecap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -793,6 +795,7 @@ private fun WeekTable(d: Dashboard) {
     val muted = MaterialTheme.colorScheme.onSurfaceVariant
     Panel(Modifier.padding(bottom = 8.dp)) { WeekBar(week, weeks, WeekBadge.PAST) { week = it } }
     val rows = d.games.filter { it.week == week }.sortedByDescending { it.points }
+    RecapCard(d, week, rows)
     val avg = rows.map { it.points }.average()
     Panel {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
@@ -825,6 +828,37 @@ private fun WeekTable(d: Dashboard) {
         PanelDivider()
         Text("League average ${fmt1(avg)} · high ${fmt1(rows.first().points)} · low ${fmt1(rows.last().points)}",
             Modifier.padding(12.dp), style = MaterialTheme.typography.labelSmall, color = muted)
+    }
+}
+
+/** The week's headlines (high, low, blowout, nail-biter, top player, bench blunder) with a Share button. */
+@Composable
+private fun RecapCard(d: Dashboard, week: Int, games: List<TeamGame>) {
+    val lines = remember(d, week) {
+        WeeklyRecap.lines(games, d.data.boxScores[week], { d.league.teamName(it) }, d.efficiency.filter { it.week == week })
+    }
+    if (lines.isEmpty()) return
+    val context = LocalContext.current
+    val muted = MaterialTheme.colorScheme.onSurfaceVariant
+    Panel(Modifier.padding(bottom = 8.dp)) {
+        Row(Modifier.padding(start = 12.dp, end = 4.dp, top = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            PanelHeading("Week $week recap", Modifier.weight(1f))
+            TextButton(onClick = {
+                RecapShare.share(context, "Week $week recap", d.league.name, lines)
+            }) { Text("Share") }
+        }
+        lines.forEach { l ->
+            PanelDivider()
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(l.label, Modifier.width(112.dp), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold,
+                    color = muted)
+                Column(Modifier.weight(1f)) {
+                    Text(l.headline, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(l.detail, style = MaterialTheme.typography.labelSmall, color = muted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+        }
     }
 }
 

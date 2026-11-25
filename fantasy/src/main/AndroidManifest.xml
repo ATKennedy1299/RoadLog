@@ -27,6 +27,17 @@
             </intent-filter>
         </activity>
 
+        <!-- Hands recap images to the share sheet (cache/shared only) -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.share"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/share_paths" />
+        </provider>
+
         <!-- WorkManager's foreground runner, typed for the every-minute score checks -->
         <service
             android:name="androidx.work.impl.foreground.SystemForegroundService"

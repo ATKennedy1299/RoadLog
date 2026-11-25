@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Recap images the app shares; nothing else in its storage is exposed. -->
+<paths>
+    <cache-path name="shared" path="shared/" />
+</paths>
